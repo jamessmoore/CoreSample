@@ -108,12 +108,12 @@ Known gaps before a real deploy:
 - `terraform/ecs.tf`'s ALB target group health check assumes FastMCP's
   streamable-HTTP route is `/mcp` — confirm against the installed `mcp` SDK
   version.
-- `terraform/agentcore_runtime.tf`'s IAM policy for the Runtime role is
-  reasoned from the Lambda container-image precedent (ECR pull, logs) plus
-  the two AgentCore-specific actions confirmed during research
-  (`bedrock-agentcore:InvokeGateway`, `bedrock:InvokeModel`). Whether
-  AgentCore Runtime needs anything else (e.g. its own ECR repository
-  resource policy, the way Lambda does) needs confirming at first deploy.
+- ~~`terraform/agentcore_runtime.tf`'s IAM policy~~ — verified against AWS's
+  published execution-role policy. No ECR repository resource policy is
+  needed (unlike Lambda); the execution role's own permissions are
+  sufficient, now matching AWS's reference policy exactly (X-Ray, scoped
+  CloudWatch metrics, workload-identity token actions) plus the
+  `InvokeGateway` addition for calling the Gateway specifically.
 - `awscc_bedrockagentcore_runtime.agent_runtime_name`'s allowed character
   set is unconfirmed (currently `replace(var.project_name, "-", "_")` as a
   guess).
@@ -191,3 +191,15 @@ terraform plan -var="bedrock_model_id=<your model/inference-profile id>"
 - Cross-account role assumption
 - Remote Terraform state (S3 + native locking — see the pattern already in
   use in `daily-tech-brief-bedrock`)
+
+## Contributing
+
+- Please see [CONTRIBUTING](CONTRIBUTING.md) for details, and
+  [CONTRIBUTORS](CONTRIBUTORS.md) for how AI tooling is used in this repo.
+- `main` is protected — all changes go through a PR with a passing `test`
+  CI check (`.github/workflows/test.yml`). See `CLAUDE.md` for the full
+  workflow.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
