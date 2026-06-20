@@ -40,8 +40,11 @@ is required before merge.
 2. Commit changes to that branch.
 3. Push the branch and open a pull request targeting `main` (`gh pr create`).
 4. Wait for the `test` status check to pass on the PR.
-5. Merge the PR into `main` only after CI passes.
-6. After a successful merge, delete the local feature branch (`git branch -d <branch>`) and run `git fetch --prune`.
+5. Merge the PR into `main` only after CI passes (`gh pr merge --merge --delete-branch`).
+6. The repo has `delete_branch_on_merge` enabled, so the **remote** branch is
+   deleted automatically on merge — no separate cleanup step needed there.
+   After merging, switch back to `main`, pull, then clean up the **local**
+   copy: `git checkout main && git pull && git fetch --prune && git branch -d <branch>`.
 
 Never commit directly to `main` and never push directly to `main`.
 
