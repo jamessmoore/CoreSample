@@ -31,14 +31,15 @@ resource "aws_iam_role" "agentcore_runtime" {
   })
 }
 
-# Permissions the Runtime's own role needs are reasoned from the Lambda
-# container-image precedent (ECR pull, logs) plus the two AgentCore-specific
-# actions confirmed during research (InvokeGateway, InvokeModel). Whether
-# AgentCore Runtime needs anything beyond this -- e.g. its own ECR
-# repository resource policy, the way Lambda needs one (see
-# daily-tech-brief-bedrock/terraform/main.tf's aws_ecr_repository_policy)
-# -- should be confirmed at first real deploy; this is a deploy-time
-# correctness question, not a Terraform schema one.
+# Verified against AWS's own published execution-role policy
+# (https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-permissions.html)
+# rather than inferred from the Lambda container-image precedent -- that
+# doc confirms no separate ECR *repository* resource policy is needed
+# (unlike Lambda); only this execution role's permissions matter. The
+# InvokeGateway statement is an addition on top of AWS's baseline example,
+# since that example is the generic "run any agent" policy and doesn't
+# cover agents that call a Gateway specifically (confirmed separately
+# against https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-permissions.html).
 resource "aws_iam_role_policy" "agentcore_runtime" {
   name = "${var.project_name}-agentcore-runtime"
   role = aws_iam_role.agentcore_runtime.id
@@ -47,13 +48,80 @@ resource "aws_iam_role_policy" "agentcore_runtime" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "EcrImageAccess"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+        ]
+        Resource = aws_ecr_repository.agent.arn
+      },
+      {
+        Sid      = "EcrTokenAccess"
+        Effect   = "Allow"
+        Action   = "ecr:GetAuthorizationToken"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = ["logs:DescribeLogStreams", "logs:CreateLogGroup"]
+        Resource = [
+          "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/bedrock-agentcore/runtimes/*",
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:DescribeLogGroups"]
+        Resource = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*"]
+      },
+      {
+        Effect = "Allow"
+        Action = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = [
+          "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords",
+          "xray:GetSamplingRules",
+          "xray:GetSamplingTargets",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Resource = "*"
+        Action   = "cloudwatch:PutMetricData"
+        Condition = {
+          StringEquals = { "cloudwatch:namespace" = "bedrock-agentcore" }
+        }
+      },
+      {
+        # ForUserId omitted deliberately -- AWS's own guidance is to deny it
+        # in production unless caller-supplied user identifiers without IdP
+        # verification are actually needed, which this agent doesn't do.
+        Sid    = "GetAgentAccessToken"
+        Effect = "Allow"
+        Action = [
+          "bedrock-agentcore:GetWorkloadAccessToken",
+          "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
+        ]
+        Resource = [
+          "arn:aws:bedrock-agentcore:${var.aws_region}:${data.aws_caller_identity.current.account_id}:workload-identity-directory/default",
+          "arn:aws:bedrock-agentcore:${var.aws_region}:${data.aws_caller_identity.current.account_id}:workload-identity-directory/default/workload-identity/${var.project_name}-*",
+        ]
+      },
+      {
         Sid      = "InvokeGateway"
         Effect   = "Allow"
         Action   = "bedrock-agentcore:InvokeGateway"
         Resource = aws_bedrockagentcore_gateway.this.gateway_arn
       },
       {
-        Sid    = "InvokeFoundationModel"
+        Sid    = "BedrockModelInvocation"
         Effect = "Allow"
         Action = [
           "bedrock:InvokeModel",
@@ -65,22 +133,6 @@ resource "aws_iam_role_policy" "agentcore_runtime" {
           "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.bedrock_model_id}",
           "arn:aws:bedrock:*::foundation-model/${replace(var.bedrock_model_id, "/^(us|global|eu|apac)\\./", "")}",
         ]
-      },
-      {
-        Sid    = "EcrPull"
-        Effect = "Allow"
-        Action = [
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:BatchGetImage",
-          "ecr:GetAuthorizationToken",
-        ]
-        Resource = "*"
-      },
-      {
-        Sid      = "Logs"
-        Effect   = "Allow"
-        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-        Resource = "*"
       },
     ]
   })
