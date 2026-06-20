@@ -1,0 +1,56 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ec2-audit-mcp dependencies
+        run: pip install -r requirements.txt
+        working-directory: ec2-audit-mcp
+
+      - name: Unit tests (ec2-audit-mcp)
+        run: pytest
+        working-directory: ec2-audit-mcp
+
+      - name: Install report-mcp dependencies
+        run: pip install -r requirements.txt
+        working-directory: report-mcp
+
+      - name: Unit tests (report-mcp)
+        run: pytest
+        working-directory: report-mcp
+
+      - name: Install agent dependencies
+        run: pip install -r requirements.txt
+        working-directory: agent
+
+      - name: Unit tests (agent)
+        run: pytest
+        working-directory: agent
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.5"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive terraform
+
+      - name: Terraform validate
+        working-directory: terraform
+        run: |
+          terraform init -backend=false
+          terraform validate

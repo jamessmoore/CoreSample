@@ -191,3 +191,15 @@ terraform plan -var="bedrock_model_id=<your model/inference-profile id>"
 - Cross-account role assumption
 - Remote Terraform state (S3 + native locking — see the pattern already in
   use in `daily-tech-brief-bedrock`)
+
+## Contributing
+
+- Please see [CONTRIBUTING](CONTRIBUTING.md) for details, and
+  [CONTRIBUTORS](CONTRIBUTORS.md) for how AI tooling is used in this repo.
+- `main` is protected — all changes go through a PR with a passing `test`
+  CI check (`.github/workflows/test.yml`). See `CLAUDE.md` for the full
+  workflow.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
