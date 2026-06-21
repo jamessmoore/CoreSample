@@ -18,3 +18,8 @@ output "agentcore_gateway_url" {
 output "agent_ecr_repository_url" {
   value = aws_ecr_repository.agent.repository_url
 }
+
+output "reports_bucket_name" {
+  description = "S3 bucket where report-mcp persists generated reports"
+  value       = aws_s3_bucket.reports.bucket
+}

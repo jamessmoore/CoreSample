@@ -7,11 +7,14 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 
 from report import generate_markdown_report
+from storage import upload_report
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("report-mcp", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
+
+REPORT_BUCKET_NAME = os.environ.get("REPORT_BUCKET_NAME")
 
 
 @mcp.custom_route("/health", methods=["GET"])
@@ -52,18 +55,38 @@ def generate_report(
     fmt = format.lower().strip()
 
     if fmt == "markdown":
-        return generate_markdown_report(findings, region=region, account_id=account_id)
+        report = generate_markdown_report(findings, region=region, account_id=account_id)
+        return _with_storage_note(report, region=region, account_id=account_id)
 
     if fmt in ("html", "pdf"):
+        report = generate_markdown_report(findings, region=region, account_id=account_id)
         return json.dumps(
             {
                 "error": f"format '{fmt}' is not implemented yet",
                 "fallback": "markdown",
-                "report": generate_markdown_report(findings, region=region, account_id=account_id),
+                "report": _with_storage_note(report, region=region, account_id=account_id),
             }
         )
 
     return json.dumps({"error": f"Unknown format '{format}'. Supported: markdown"})
+
+
+def _with_storage_note(report: str, *, region: str, account_id: str) -> str:
+    """Upload the report to S3 if a bucket is configured, appending its
+    location to the returned text so the agent can pass it on to the user.
+    Storage is best-effort -- a failed upload logs and falls through to
+    returning the report unmodified rather than losing the report entirely.
+    """
+    if not REPORT_BUCKET_NAME:
+        return report
+
+    try:
+        uri = upload_report(report, bucket=REPORT_BUCKET_NAME, region=region, account_id=account_id)
+    except Exception as e:
+        logger.error("Failed to upload report to S3: %s", str(e))
+        return report
+
+    return f"{report}\n\n---\n*Report stored at: {uri}*"
 
 
 if __name__ == "__main__":

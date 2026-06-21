@@ -88,8 +88,10 @@ data).
 ec2-audit-mcp/    EC2 audit checks (ported from aws-audit-mcp), FastMCP server,
                   streamable-HTTP transport (network-reachable, not stdio --
                   required so AgentCore Gateway can call it)
-report-mcp/       Findings -> Markdown report. HTML/PDF deferred (v1 ships
-                  Markdown only, to keep the image lean -- see report-mcp/main.py)
+report-mcp/       Findings -> Markdown report, persisted to S3 (storage.py)
+                  in addition to being returned inline. HTML/PDF deferred
+                  (v1 ships Markdown only, to keep the image lean -- see
+                  report-mcp/main.py)
 agent/            Strands Agent + FastAPI, implementing the AgentCore Runtime
                   HTTP protocol contract (POST /invocations, GET /ping on
                   0.0.0.0:8080). MCP client to the Gateway signs with this
@@ -97,8 +99,8 @@ agent/            Strands Agent + FastAPI, implementing the AgentCore Runtime
                   account credentials ever touch this service either.
 terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   API Gateway HTTP API + VPC Link, AgentCore Gateway +
-                  targets, AgentCore Runtime (awscc provider), least-
-                  privilege IAM throughout.
+                  targets, AgentCore Runtime (awscc provider), an S3 bucket
+                  for generated reports, least-privilege IAM throughout.
 ```
 
 ## Status

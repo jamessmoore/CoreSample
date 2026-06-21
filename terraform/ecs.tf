@@ -105,6 +105,7 @@ resource "aws_ecs_task_definition" "report_mcp" {
     }]
     environment = [
       { name = "PORT", value = tostring(var.container_port) },
+      { name = "REPORT_BUCKET_NAME", value = aws_s3_bucket.reports.bucket },
     ]
     logConfiguration = {
       logDriver = "awslogs"
