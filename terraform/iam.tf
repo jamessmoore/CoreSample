@@ -60,9 +60,8 @@ resource "aws_iam_role_policy" "ec2_audit_mcp_readonly" {
 }
 
 # --- report-mcp task role ----------------------------------------------------
-# report-mcp only transforms JSON it's handed -- it makes no AWS API calls
-# of its own, so its task role grants nothing beyond the bare assume-role
-# trust ECS requires.
+# report-mcp transforms JSON into Markdown and writes the result to the
+# reports bucket (terraform/s3.tf) -- the only AWS API call it makes.
 
 resource "aws_iam_role" "report_mcp_task" {
   name = "${var.project_name}-report-mcp-task"
@@ -73,6 +72,21 @@ resource "aws_iam_role" "report_mcp_task" {
       Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
       Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "report_mcp_s3_write" {
+  name = "${var.project_name}-report-mcp-s3-write"
+  role = aws_iam_role.report_mcp_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "WriteReports"
+      Effect   = "Allow"
+      Action   = "s3:PutObject"
+      Resource = "${aws_s3_bucket.reports.arn}/*"
     }]
   })
 }

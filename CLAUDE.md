@@ -74,16 +74,19 @@ ec2-audit-mcp/    EC2 audit checks (untagged instances, public IPs, permissive
                   No credentials accepted as input -- uses the Fargate task
                   role via boto3's default credential chain.
 report-mcp/       Findings -> Markdown report, decoupled from audit logic.
-                  HTML/PDF deferred (v1 ships Markdown only).
+                  Also persists each report to S3 (storage.py) and notes the
+                  s3:// location alongside the inline report text. HTML/PDF
+                  deferred (v1 ships Markdown only).
 agent/            Strands Agent + FastAPI, implementing the AgentCore Runtime
                   HTTP protocol contract (POST /invocations, GET /ping on
                   0.0.0.0:8080, ARM64). MCP client to the Gateway signs with
                   this Runtime's own IAM role via mcp-proxy-for-aws.
 terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   API Gateway HTTP API + VPC Link, AgentCore Gateway +
-                  targets, AgentCore Runtime (awscc provider), least-
-                  privilege IAM throughout. No remote state backend yet
-                  (solo project, no team state-sharing need at v1).
+                  targets, AgentCore Runtime (awscc provider), an S3 bucket
+                  for generated reports (s3.tf), least-privilege IAM
+                  throughout. No remote state backend yet (solo project, no
+                  team state-sharing need at v1).
 .github/workflows/
   test.yml        CI gate: pytest (x3 services) + terraform fmt/validate,
                   on every PR to main and push to main.
