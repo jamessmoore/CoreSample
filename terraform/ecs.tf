@@ -58,23 +58,7 @@ resource "aws_lb_target_group" "ec2_audit_mcp" {
   target_type = "ip"
 
   health_check {
-    path = "/mcp" # FastMCP's streamable-HTTP route -- confirm against the mcp SDK version in use
-  }
-}
-
-resource "aws_lb_listener_rule" "ec2_audit_mcp" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 10
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.ec2_audit_mcp.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/ec2-audit/*", "/ec2-audit"]
-    }
+    path = "/health" # GET /mcp returns 406 -- the MCP route needs MCP-specific Accept headers
   }
 }
 
@@ -97,7 +81,7 @@ resource "aws_ecs_service" "ec2_audit_mcp" {
     container_port   = var.container_port
   }
 
-  depends_on = [aws_lb_listener_rule.ec2_audit_mcp]
+  depends_on = [aws_lb_listener.ec2_audit_mcp]
 }
 
 # --- report-mcp ----------------------------------------------------------------
@@ -141,23 +125,7 @@ resource "aws_lb_target_group" "report_mcp" {
   target_type = "ip"
 
   health_check {
-    path = "/mcp"
-  }
-}
-
-resource "aws_lb_listener_rule" "report_mcp" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 20
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.report_mcp.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/report/*", "/report"]
-    }
+    path = "/health" # GET /mcp returns 406 -- the MCP route needs MCP-specific Accept headers
   }
 }
 
@@ -180,5 +148,5 @@ resource "aws_ecs_service" "report_mcp" {
     container_port   = var.container_port
   }
 
-  depends_on = [aws_lb_listener_rule.report_mcp]
+  depends_on = [aws_lb_listener.report_mcp]
 }

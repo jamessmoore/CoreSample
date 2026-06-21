@@ -12,6 +12,7 @@ terraform/*.tfstate.*
 terraform/*.tfvars
 terraform/*.auto.tfvars
 terraform/.terraform.lock.hcl
+terraform/tfplan*
 
 # Env
 .env

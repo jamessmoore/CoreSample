@@ -35,11 +35,26 @@ resource "aws_security_group" "alb" {
 # Standalone rule resources (rather than an inline `ingress` block here and
 # an inline `egress` block on the VPC Link's SG in api_gateway.tf) to avoid
 # the two security groups creating a dependency cycle on each other.
-resource "aws_vpc_security_group_ingress_rule" "alb_from_vpc_link" {
+#
+# Two dedicated ports (not one shared port + ALB path-based rules): API
+# Gateway's HTTP_PROXY integration strips each route's path prefix before
+# forwarding (api_gateway.tf's "overwrite:path" mapping) so the backend
+# always sees plain "/mcp" -- which means the ALB can no longer tell the
+# two backends apart by path. A dedicated listener per backend sidesteps
+# that entirely.
+resource "aws_vpc_security_group_ingress_rule" "alb_from_vpc_link_ec2_audit" {
   security_group_id            = aws_security_group.alb.id
   referenced_security_group_id = aws_security_group.vpc_link.id
-  from_port                    = 80
-  to_port                      = 80
+  from_port                    = 8001
+  to_port                      = 8001
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "alb_from_vpc_link_report" {
+  security_group_id            = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.vpc_link.id
+  from_port                    = 8002
+  to_port                      = 8002
   ip_protocol                  = "tcp"
 }
 
@@ -71,17 +86,24 @@ resource "aws_lb" "mcp" {
   subnets            = data.aws_subnets.default.ids
 }
 
-resource "aws_lb_listener" "http" {
+resource "aws_lb_listener" "ec2_audit_mcp" {
   load_balancer_arn = aws_lb.mcp.arn
-  port              = 80
+  port              = 8001
   protocol          = "HTTP"
 
   default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "no matching route"
-      status_code  = "404"
-    }
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ec2_audit_mcp.arn
+  }
+}
+
+resource "aws_lb_listener" "report_mcp" {
+  load_balancer_arn = aws_lb.mcp.arn
+  port              = 8002
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.report_mcp.arn
   }
 }

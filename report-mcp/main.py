@@ -3,6 +3,8 @@ import logging
 import os
 
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse
 
 from report import generate_markdown_report
 
@@ -10,6 +12,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("report-mcp", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health(_request: Request) -> PlainTextResponse:
+    # ALB target group health check -- GET /mcp returns 406 since the MCP
+    # streamable-http endpoint requires MCP-specific Accept headers.
+    return PlainTextResponse("ok")
 
 
 @mcp.tool()

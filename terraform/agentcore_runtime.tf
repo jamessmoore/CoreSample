@@ -155,7 +155,18 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
   }
 
   environment_variables = {
-    GATEWAY_URL      = "${aws_bedrockagentcore_gateway.this.gateway_url}/mcp"
+    # Without this, boto3.Session().region_name resolves to None inside the
+    # container (no ~/.aws/config, no IMDS region for this compute type),
+    # which mcp_proxy_for_aws's aws_iam_streamablehttp_client then bakes
+    # into a malformed SigV4 credential scope -- AWS rejects it with a
+    # generic 403, not a region error, which is why this was hard to spot.
+    # Must be AWS_DEFAULT_REGION specifically -- this botocore version's
+    # region config chain (configprovider.py) only checks that name, not
+    # AWS_REGION (confirmed locally: AWS_REGION alone left region_name None).
+    AWS_DEFAULT_REGION = var.aws_region
+    # gateway_url already ends in "/mcp" -- appending another "/mcp" here
+    # produced a double "/mcp/mcp" path that the Gateway 400'd on.
+    GATEWAY_URL      = aws_bedrockagentcore_gateway.this.gateway_url
     BEDROCK_MODEL_ID = var.bedrock_model_id
   }
 }
