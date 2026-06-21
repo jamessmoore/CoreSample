@@ -10,7 +10,9 @@ AgentCore Gateway to MCP servers running read-only audits against the
 account's own resources (`ec2-audit-mcp` first, more to follow), with a
 decoupled `report-mcp` turning findings into a client-ready Markdown
 report. The pitch: audit logic, model invocation, and AWS API calls all
-happen inside the account boundary — no external service reaches in. See
+happen inside the account boundary — no external service reaches in. For
+compliance-minded enterprises, that's the whole point — and it's exactly what
+this repo sets out to prove. See
 `README.md` for the full architecture, including what changed from the
 original kickoff plan and why (classic Bedrock Agents can't target an
 AgentCore Gateway; a bare ALB can't satisfy the Gateway target's HTTPS/
