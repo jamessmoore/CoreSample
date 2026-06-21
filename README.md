@@ -8,8 +8,8 @@
 An AWS-native security/compliance audit framework. The audit logic, the
 foundation-model invocation, and the AWS API calls it makes all run *inside*
 the account boundary — no external service reaches in to inspect your
-infrastructure. That's the differentiator for compliance-minded buyers, and
-the proof-of-concept behind this repo.
+infrastructure. For compliance-minded enterprises, that is a key objective — and
+it's exactly what this repo sets out to prove.
 
 This is the evolution of [`aws-audit-mcp`](https://github.com/jamessmoore/aws-audit-mcp),
 re-platformed onto Amazon Bedrock as the foundation-model layer instead of an
