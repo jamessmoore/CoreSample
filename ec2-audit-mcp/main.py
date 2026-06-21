@@ -3,6 +3,8 @@ import logging
 import os
 
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse
 
 from audit import EC2Auditor
 
@@ -14,6 +16,13 @@ logger = logging.getLogger(__name__)
 # would. Streamable HTTP is the current MCP transport for network-reachable
 # servers (the older HTTP+SSE transport is being phased out in favor of it).
 mcp = FastMCP("ec2-audit-mcp", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health(_request: Request) -> PlainTextResponse:
+    # ALB target group health check -- GET /mcp returns 406 since the MCP
+    # streamable-http endpoint requires MCP-specific Accept headers.
+    return PlainTextResponse("ok")
 
 
 @mcp.tool()

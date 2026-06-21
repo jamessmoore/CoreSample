@@ -1,3 +1,8 @@
+<p align="center">
+  <img src="docs/architecture.gif" width="100%"
+    alt="CoreSample architecture: an audit request flows through IAM/SigV4-gated hops — Strands Agent, AgentCore Gateway, API Gateway, internal ALB, ECS Fargate MCP servers — inside the AWS account boundary; findings return as a Markdown report.">
+</p>
+
 # CoreSample
 
 An AWS-native security/compliance audit framework. The audit logic, the
