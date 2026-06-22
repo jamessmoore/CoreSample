@@ -120,6 +120,34 @@ def _all_findings(findings: dict[str, Any]) -> list[dict[str, Any]]:
     return flat
 
 
+def merge_findings(findings_list: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge multiple *-audit-mcp findings dicts (one per audit tool call)
+    into a single findings dict.
+
+    The merged "summary" is recomputed from the merged categories rather
+    than summed from each input's own summary -- this keeps the result
+    internally consistent regardless of how many services contributed
+    findings, instead of trusting the caller to have combined the numbers
+    correctly itself. (A caller hand-merging multiple tool outputs into one
+    audit_json string -- rather than passing each one through unmodified --
+    is exactly what produced inconsistent/incomplete reports in practice.)
+    """
+    merged: dict[str, list[Any]] = {}
+    for findings in findings_list:
+        for category, items in findings.items():
+            if category == "summary" or not isinstance(items, list):
+                continue
+            merged.setdefault(category, []).extend(items)
+
+    total = sum(len(items) for items in merged.values())
+    critical = sum(1 for items in merged.values() for item in items if item.get("severity") == "critical")
+    high = sum(1 for items in merged.values() for item in items if item.get("severity") == "high")
+
+    result: dict[str, Any] = dict(merged)
+    result["summary"] = {"total_findings": total, "critical": critical, "high": high}
+    return result
+
+
 def _risk_posture(summary: dict[str, Any]) -> str:
     if summary.get("critical", 0) > 0:
         return "CRITICAL RISK"

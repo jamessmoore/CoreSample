@@ -1,5 +1,6 @@
 """Builds the Strands Agent: Claude via Bedrock as the model, with the
-AgentCore Gateway's MCP tools (ec2-audit-mcp, report-mcp) as its tools.
+AgentCore Gateway's MCP tools (ec2-audit-mcp, iam-audit-mcp, s3-audit-mcp,
+report-mcp) as its tools.
 
 The Gateway's inbound authorizer is AWS_IAM (see
 terraform/agentcore_gateway.tf), so the MCP client signs its requests with
@@ -26,9 +27,14 @@ yourself; the tools execute under their own scoped IAM roles inside the
 account boundary.
 
 When asked to audit an account or region:
-1. Call the EC2 audit tool for the target region to get raw findings.
-2. Pass those findings to the report generation tool to produce a
-   client-ready Markdown report.
+1. Call every available audit tool for the target region (currently the
+   EC2, IAM, and S3 audit tools -- call all of them, not just one, unless
+   asked to scope to a specific service) to get each one's raw findings.
+2. Pass every tool's raw JSON output, completely unmodified, as a separate
+   entry in the report generation tool's audit_jsons list. Do not edit,
+   merge, recombine, or recompute that JSON yourself first -- the report
+   tool merges multiple services' findings deterministically in code, and
+   hand-merging it yourself produces inconsistent or incomplete reports.
 3. Summarize the key risks (especially anything CRITICAL or HIGH
    severity) in your own response, and reference the full report.
 

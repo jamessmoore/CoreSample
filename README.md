@@ -142,19 +142,25 @@ Known gaps:
   set is unconfirmed (currently `replace(var.project_name, "-", "_")` as a
   guess) — hasn't caused a problem in practice yet, but isn't confirmed
   against AWS's actual validation rules either.
-- `agent/strands_agent.py`'s `SYSTEM_PROMPT` only explicitly walks through
-  calling "the EC2 audit tool" — it predates `iam-audit-mcp`/`s3-audit-mcp`.
-  A generic prompt like `"audit us-west-2"` may only trigger the EC2 check;
-  getting all three currently requires naming every tool explicitly
-  (confirmed across two separate real invocations). The system prompt
-  should name every available tool, or be rewritten to discover and call
-  whatever the Gateway actually exposes instead of hardcoding examples.
-- `report-mcp`'s renderer (`report.py`'s `_all_findings()`) now recognizes
-  every `ec2-audit-mcp`/`iam-audit-mcp`/`s3-audit-mcp` finding-category key
-  (table-driven, fixed in code), but **the deployed `report-mcp` container
-  is still running the pre-fix image** — this hasn't been rebuilt/pushed/
-  redeployed yet, so the live system's persisted reports still only show
-  the EC2 section until that happens.
+- A second real end-to-end run (after redeploying `report-mcp` with the
+  `_all_findings()` fix) surfaced a deeper issue: `generate_report` took a
+  single `audit_json` string, so producing one combined report required
+  the *agent* to hand-merge multiple tool-call results into one JSON blob
+  itself before calling it -- unreliable LLM behavior, not deterministic
+  code. One run kept only EC2's raw data with a patched summary count; the
+  next produced an empty/"CLEAN" report with no category data at all, even
+  though all three tools had real findings.
+  Fixed by changing `generate_report` to accept `audit_jsons: list[str]`
+  (one entry per tool's raw, unmodified output) and merging them
+  deterministically in `report.py`'s new `merge_findings()` -- the summary
+  is recomputed from the merged categories rather than trusted from the
+  inputs, so it can't drift out of sync with what's actually rendered.
+  `agent/strands_agent.py`'s `SYSTEM_PROMPT` was also rewritten to name all
+  three audit tools explicitly and tell the agent not to hand-merge JSON
+  itself.
+  **Fixed in code but not yet deployed** -- both `report-mcp` (new tool
+  signature) and `agent` (new system prompt) need to be rebuilt, pushed,
+  and redeployed before this is live.
 
 ## v1 scope
 
