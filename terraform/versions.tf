@@ -20,10 +20,19 @@ terraform {
     }
   }
 
-  # No remote backend yet -- this is a solo portfolio project with no team
-  # state-sharing need at v1. Local state is fine for now; revisit (S3 +
-  # native locking, see daily-tech-brief-bedrock/terraform/main.tf for the
-  # pattern already used elsewhere) before this grows beyond one operator.
+  # S3 backend, same pattern as daily-tech-brief-bedrock/terraform/main.tf:
+  # native S3 conditional-write locking (use_lockfile, requires Terraform
+  # 1.10+ -- see required_version above), no DynamoDB lock table needed.
+  # The bucket can't be created by the same config that uses it as a
+  # backend (chicken-and-egg), so it's bootstrapped out of band -- see
+  # README "Terraform state backend".
+  backend "s3" {
+    bucket       = "coresample-tfstate-293528978619"
+    key          = "coresample/terraform.tfstate"
+    region       = "us-west-2"
+    encrypt      = true
+    use_lockfile = true
+  }
 }
 
 provider "aws" {
