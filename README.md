@@ -158,9 +158,20 @@ Known gaps:
   `agent/strands_agent.py`'s `SYSTEM_PROMPT` was also rewritten to name all
   three audit tools explicitly and tell the agent not to hand-merge JSON
   itself.
-  **Fixed in code but not yet deployed** -- both `report-mcp` (new tool
-  signature) and `agent` (new system prompt) need to be rebuilt, pushed,
-  and redeployed before this is live.
+  **Deployed and verified** -- a real post-redeploy audit run produced a
+  correctly-merged 4-finding report across EC2 and S3, persisted to S3
+  intact.
+- Rolling out that fix surfaced a general gotcha: the AgentCore Gateway
+  caches a target's tool schema at *target-creation* time and never
+  re-fetches it on a plain ECS redeploy. After `report-mcp`'s tool
+  signature changed, the Gateway kept serving the old schema, so the agent
+  got a validation error claiming the tool "requires a field that isn't
+  exposed in its schema" -- the new code was deployed correctly, but the
+  Gateway hadn't re-registered it. Fixed with the same `-replace` approach
+  used for the Runtime's `:latest`-tag problem:
+  `terraform apply -replace=aws_bedrockagentcore_gateway_target.report_mcp`.
+  Any future change to an MCP tool's parameters needs this step, not just
+  an ECS redeploy -- see "Deploying" below.
 
 ## v1 scope
 
@@ -171,7 +182,7 @@ Known gaps:
 - [x] Strands agent (`agent/`) implementing the Runtime HTTP contract
 - [x] First real deploy + end-to-end audit run against my own account
 - [x] Port IAM audit checks into `iam-audit-mcp`
-- [x] Port S3 audit checks into `s3-audit-mcp` (Terraform wired up, not yet applied)
+- [x] Port S3 audit checks into `s3-audit-mcp`
 
 Out of scope for v1: multi-account support, any UI beyond the generated
 report.
@@ -279,6 +290,20 @@ its API operation name exactly.
 3. Invoke the agent once deployed (boto3 `bedrock-agentcore` client, or the
    AWS CLI's `bedrock-agentcore` commands) with a prompt like
    `"audit us-west-2"` and confirm a real Markdown report comes back.
+4. If you ever change parameters on an existing MCP tool (rename, retype,
+   add/remove an argument) on an already-deployed server: a plain ECS
+   redeploy of the container is *not* enough. The AgentCore Gateway target
+   fetches and caches a target's tool schema once, at target-creation
+   time, and won't notice the underlying server's tool definitions changed.
+   Force it to re-register:
+   ```
+   terraform apply -replace=aws_bedrockagentcore_gateway_target.<name>
+   ```
+   Symptom if you skip this: the agent reports a validation error claiming
+   the tool needs a field that "isn't exposed in its schema," even though
+   the new code is deployed correctly. Same root cause as the Runtime's
+   `:latest`-tag problem -- a resource referencing something Terraform
+   doesn't see as changed -- same `-replace` fix.
 
 ## Future expansions
 
