@@ -1,9 +1,13 @@
 """report.py -- Markdown report generator for report-mcp.
 
-Decoupled from audit logic: takes the findings dict shape produced by
-ec2-audit-mcp's audit_ec2 tool (or any future *-audit-mcp server using the
-same {category: [...], summary: {...}} shape) and renders it as a
-client-ready report.
+Decoupled from audit logic: takes the findings dict shape produced by any
+*-audit-mcp server's audit tool (the common {category: [...], summary: {
+...}} shape) and renders it as a client-ready report. `_CATEGORY_RENDERERS`
+below is the registry of every category key currently recognized, across
+ec2-audit-mcp, iam-audit-mcp, and s3-audit-mcp -- a category key not in
+this table is skipped rather than crashing, so an unrecognized future
+service's findings degrade gracefully (missing from the rendered table)
+instead of breaking the whole report.
 
 v1 ships Markdown only. HTML/PDF (WeasyPrint) are deferred -- see
 report-mcp/main.py -- to keep this server's image lean while the
@@ -11,7 +15,7 @@ Fargate-vs-Lambda compute question for the suite is still being worked out.
 """
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 SEVERITY_EMOJI = {
@@ -22,43 +26,95 @@ SEVERITY_EMOJI = {
     "info": "⚪",
 }
 
+# category key -> (check label, resource-id extractor, issue-description extractor)
+_CATEGORY_RENDERERS: dict[str, tuple[str, Callable[[dict], str], Callable[[dict], str]]] = {
+    # ec2-audit-mcp
+    "untagged_instances": (
+        "Untagged Instance",
+        lambda item: item["instance_id"],
+        lambda item: f"Missing required tags: {', '.join(item['missing_tags'])}",
+    ),
+    "public_instances": (
+        "Public IP Assigned",
+        lambda item: item["instance_id"],
+        lambda item: f"Instance has public IP: {item['public_ip']}",
+    ),
+    "security_group_issues": (
+        "Permissive Security Group",
+        lambda item: item["security_group_id"],
+        lambda item: f"{item['issue']} (SG: {item['security_group_name']})",
+    ),
+    # iam-audit-mcp
+    "console_users_without_mfa": (
+        "Console User Without MFA",
+        lambda item: item["user_name"],
+        lambda item: "Console user has no MFA device attached",
+    ),
+    "old_access_keys": (
+        "Stale Access Key",
+        lambda item: item["access_key_id"],
+        lambda item: (
+            f"Access key for {item['user_name']} is {item['age_days']} days old "
+            "(exceeds 90-day rotation threshold)"
+        ),
+    ),
+    "root_account_risk": (
+        "Root Account Risk",
+        lambda item: item["resource"],
+        lambda item: item["issue"],
+    ),
+    "unused_credentials": (
+        "Unused Credential",
+        lambda item: item.get("access_key_id") or item["user_name"],
+        lambda item: (
+            f"{item['credential_type'].replace('_', ' ').title()} for {item['user_name']} "
+            f"last used {item.get('last_used') or 'never'}"
+        ),
+    ),
+    # s3-audit-mcp
+    "public_buckets": (
+        "Public Bucket",
+        lambda item: item["bucket_name"],
+        lambda item: "Bucket is publicly accessible via ACL grant or bucket policy",
+    ),
+    "public_access_block_gaps": (
+        "Public Access Block Gap",
+        lambda item: item["bucket_name"],
+        lambda item: f"Missing protections: {', '.join(item['missing_protections'])}",
+    ),
+    "unencrypted_buckets": (
+        "Unencrypted Bucket",
+        lambda item: item["bucket_name"],
+        lambda item: "No default server-side encryption configured",
+    ),
+    "unversioned_buckets": (
+        "Versioning Disabled",
+        lambda item: item["bucket_name"],
+        lambda item: "Versioning is not enabled",
+    ),
+}
+
 
 def _all_findings(findings: dict[str, Any]) -> list[dict[str, Any]]:
-    """Flatten all findings from all check categories into a single sorted list."""
+    """Flatten all findings from all recognized check categories into a single sorted list."""
     flat = []
 
-    for item in findings.get("untagged_instances", []):
-        flat.append(
-            {
-                "check": "Untagged Instance",
-                "resource_id": item["instance_id"],
-                "severity": item["severity"],
-                "issue": f"Missing required tags: {', '.join(item['missing_tags'])}",
-                "recommendation": item["recommendation"],
-            }
-        )
+    for category, items in findings.items():
+        renderer = _CATEGORY_RENDERERS.get(category)
+        if renderer is None or not isinstance(items, list):
+            continue
 
-    for item in findings.get("public_instances", []):
-        flat.append(
-            {
-                "check": "Public IP Assigned",
-                "resource_id": item["instance_id"],
-                "severity": item["severity"],
-                "issue": f"Instance has public IP: {item['public_ip']}",
-                "recommendation": item["recommendation"],
-            }
-        )
-
-    for item in findings.get("security_group_issues", []):
-        flat.append(
-            {
-                "check": "Permissive Security Group",
-                "resource_id": item["security_group_id"],
-                "severity": item["severity"],
-                "issue": f"{item['issue']} (SG: {item['security_group_name']})",
-                "recommendation": item["recommendation"],
-            }
-        )
+        check_label, resource_id_fn, issue_fn = renderer
+        for item in items:
+            flat.append(
+                {
+                    "check": check_label,
+                    "resource_id": resource_id_fn(item),
+                    "severity": item["severity"],
+                    "issue": issue_fn(item),
+                    "recommendation": item["recommendation"],
+                }
+            )
 
     flat.sort(key=lambda x: SEVERITY_ORDER.get(x["severity"], 99))
     return flat
@@ -81,40 +137,29 @@ def _executive_summary(findings: dict[str, Any], region: str) -> str:
     total = summary.get("total_findings", 0)
     critical = summary.get("critical", 0)
     high = summary.get("high", 0)
-    untagged = len(findings.get("untagged_instances", []))
-    public_ips = len(findings.get("public_instances", []))
-    sg_issues = len(findings.get("security_group_issues", []))
 
     if total == 0:
         return (
-            f"The EC2 audit of region **{region}** returned no findings. "
-            "All scanned instances are tagged correctly, have no unnecessary public IPs, "
-            "and all security groups restrict inbound access appropriately. "
+            f"The audit of region **{region}** returned no findings. "
             "No immediate action is required."
         )
 
-    parts = []
-    if untagged:
-        parts.append(f"{untagged} untagged instance{'s' if untagged > 1 else ''}")
-    if public_ips:
-        parts.append(f"{public_ips} instance{'s' if public_ips > 1 else ''} with public IPs")
-    if sg_issues:
-        parts.append(f"{sg_issues} overly permissive security group rule{'s' if sg_issues > 1 else ''}")
-
-    finding_list = ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1]
+    counts: dict[str, int] = {}
+    for item in _all_findings(findings):
+        counts[item["check"]] = counts.get(item["check"], 0) + 1
+    finding_list = ", ".join(f"{label} ({count})" for label, count in counts.items())
 
     urgency = ""
     if critical > 0:
         urgency = (
             f"**{critical} critical finding{'s' if critical > 1 else ''} "
-            f"{'require' if critical > 1 else 'requires'} immediate remediation** -- "
-            "open SSH or RDP access from the internet represents active attack surface. "
+            f"{'require' if critical > 1 else 'requires'} immediate remediation.** "
         )
     elif high > 0:
         urgency = f"**{high} high-severity finding{'s' if high > 1 else ''} should be addressed within 24-48 hours.** "
 
     return (
-        f"The EC2 audit of region **{region}** identified **{total} finding{'s' if total > 1 else ''}** "
+        f"The audit of region **{region}** identified **{total} finding{'s' if total > 1 else ''}** "
         f"across the following categories: {finding_list}. "
         f"{urgency}"
         "Full details and remediation steps are provided in the findings section below."

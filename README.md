@@ -128,34 +128,33 @@ terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
 
 ## Status
 
-`ec2-audit-mcp` and `iam-audit-mcp` are **deployed and verified end-to-end**
-against my real AWS account: a real audit request flows through every hop
-(Strands Agent on AgentCore Runtime → AgentCore Gateway → API Gateway →
-internal ALB → ECS Fargate) and a real combined Markdown report comes back.
-`s3-audit-mcp` is code-complete with its Terraform wired up and a passing
-local test suite, but **has not been applied/deployed yet** — don't assume
-its ECS service, target group, or Gateway target actually exist.
-`ec2-audit-mcp`, `iam-audit-mcp`, `s3-audit-mcp`, `report-mcp`, and `agent`
-all have passing local test suites. Terraform state lives in S3 with
-native locking — see "Terraform state backend" below.
+`ec2-audit-mcp`, `iam-audit-mcp`, and `s3-audit-mcp` are all **deployed and
+verified end-to-end** against my real AWS account: a real audit request
+flows through every hop (Strands Agent on AgentCore Runtime → AgentCore
+Gateway → API Gateway → internal ALB → ECS Fargate) for all three, and a
+real combined Markdown report comes back. `ec2-audit-mcp`, `iam-audit-mcp`,
+`s3-audit-mcp`, `report-mcp`, and `agent` all have passing local test
+suites. Terraform state lives in S3 with native locking — see "Terraform
+state backend" below.
 
 Known gaps:
 - `awscc_bedrockagentcore_runtime.agent_runtime_name`'s allowed character
   set is unconfirmed (currently `replace(var.project_name, "-", "_")` as a
   guess) — hasn't caused a problem in practice yet, but isn't confirmed
   against AWS's actual validation rules either.
-- `report-mcp`'s renderer (`report.py`'s `_all_findings()`) only recognizes
-  `ec2-audit-mcp`'s finding-category keys. A real end-to-end run confirmed
-  the agent's chat response correctly summarizes `iam-audit-mcp` findings
-  too, but the **persisted Markdown report currently omits the IAM
-  section** — `_all_findings()` needs to handle multiple services' finding
-  shapes generically, not just EC2's three category names.
 - `agent/strands_agent.py`'s `SYSTEM_PROMPT` only explicitly walks through
-  calling "the EC2 audit tool" — it predates `iam-audit-mcp`. A generic
-  prompt like `"audit us-west-2"` may only trigger the EC2 check; getting
-  both currently requires asking explicitly (confirmed: a prompt that named
-  both tools by name correctly called `audit_ec2` *and* `audit_iam`). The
-  system prompt should name both tools once a second non-EC2 server exists.
+  calling "the EC2 audit tool" — it predates `iam-audit-mcp`/`s3-audit-mcp`.
+  A generic prompt like `"audit us-west-2"` may only trigger the EC2 check;
+  getting all three currently requires naming every tool explicitly
+  (confirmed across two separate real invocations). The system prompt
+  should name every available tool, or be rewritten to discover and call
+  whatever the Gateway actually exposes instead of hardcoding examples.
+- `report-mcp`'s renderer (`report.py`'s `_all_findings()`) now recognizes
+  every `ec2-audit-mcp`/`iam-audit-mcp`/`s3-audit-mcp` finding-category key
+  (table-driven, fixed in code), but **the deployed `report-mcp` container
+  is still running the pre-fix image** — this hasn't been rebuilt/pushed/
+  redeployed yet, so the live system's persisted reports still only show
+  the EC2 section until that happens.
 
 ## v1 scope
 
