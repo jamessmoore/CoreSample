@@ -23,23 +23,20 @@ re-platformed onto Bedrock/AgentCore instead of an external API.
 
 ## Current status — read before assuming anything is stale
 
-`ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and `agent` are **deployed
-and verified end-to-end** against the real AWS account: a real audit
-request flows through every hop (Strands Agent on AgentCore Runtime →
-AgentCore Gateway → API Gateway → internal ALB → ECS Fargate) and a real
-combined Markdown report comes back. `s3-audit-mcp` is code-complete with
-its Terraform wired up and a passing local test suite, but **has not been
-applied/deployed yet** — don't assume its ECS service, target group, or
-Gateway target exist until `terraform apply` has been run against it
-specifically (same situation `iam-audit-mcp` was in before its own deploy).
-All five services have passing local test suites.
+`ec2-audit-mcp`, `iam-audit-mcp`, `s3-audit-mcp`, `report-mcp`, and `agent`
+are all **deployed and verified end-to-end** against the real AWS account:
+a real audit request flows through every hop (Strands Agent on AgentCore
+Runtime → AgentCore Gateway → API Gateway → internal ALB → ECS Fargate)
+for all three audit services, and a real combined Markdown report comes
+back. All five have passing local test suites.
 
-Known gap: `report-mcp`'s renderer (`report.py`'s `_all_findings()`) only
-recognizes `ec2-audit-mcp`'s finding-category keys. The agent's chat
-response correctly summarizes `iam-audit-mcp` findings too (confirmed via a
-real invocation), but the **persisted Markdown report currently omits the
-IAM section** — `_all_findings()` needs to handle multiple services'
-finding shapes generically, not just EC2's three category names.
+Known gap: `report-mcp`'s renderer (`report.py`'s `_all_findings()`) is now
+table-driven and recognizes every `ec2-audit-mcp`/`iam-audit-mcp`/
+`s3-audit-mcp` finding-category key (fixed in code), but **the deployed
+`report-mcp` container is still running the pre-fix image** — it hasn't
+been rebuilt/pushed/redeployed yet, so live persisted reports still only
+show the EC2 section until that happens. Don't assume this is fixed in
+production just because it's fixed in `main`.
 
 Terraform state lives in S3
 (`terraform/versions.tf`'s `backend "s3"` block, native locking via
