@@ -59,6 +59,48 @@ resource "aws_iam_role_policy" "ec2_audit_mcp_readonly" {
   })
 }
 
+# --- iam-audit-mcp task role -------------------------------------------------
+# Same compliance talking point as ec2_audit_mcp_task: read-only, scoped to
+# exactly the five IAM list/get actions the auditor calls (no
+# GetLoginProfile or policy-document reads -- console access is inferred
+# from list_users' PasswordLastUsed field instead, see
+# iam-audit-mcp/audit.py). No write/modify permissions anywhere. Credentials
+# never leave this role -- iam-audit-mcp never accepts them as input.
+
+resource "aws_iam_role" "iam_audit_mcp_task" {
+  name = "${var.project_name}-iam-audit-mcp-task"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "iam_audit_mcp_readonly" {
+  name = "${var.project_name}-iam-readonly"
+  role = aws_iam_role.iam_audit_mcp_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "IamAuditReadOnly"
+      Effect = "Allow"
+      Action = [
+        "iam:ListUsers",
+        "iam:ListAccessKeys",
+        "iam:ListMFADevices",
+        "iam:GetAccountSummary",
+        "iam:GetAccessKeyLastUsed",
+      ]
+      Resource = "*" # list/get actions on IAM don't support resource-level scoping
+    }]
+  })
+}
+
 # --- report-mcp task role ----------------------------------------------------
 # report-mcp transforms JSON into Markdown and writes the result to the
 # reports bucket (terraform/s3.tf) -- the only AWS API call it makes.

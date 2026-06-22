@@ -23,13 +23,18 @@ re-platformed onto Bedrock/AgentCore instead of an external API.
 
 ## Current status — read before assuming anything is stale
 
-The full v1 stack is **deployed and verified end-to-end** against the real
-AWS account: a real audit request flows through every hop (Strands Agent on
-AgentCore Runtime → AgentCore Gateway → API Gateway → internal ALB → ECS
-Fargate `ec2-audit-mcp`/`report-mcp`) and a real Markdown report comes back.
-`ec2-audit-mcp`, `report-mcp`, and `agent` each have passing local test
-suites. Terraform state lives in S3 (`terraform/versions.tf`'s `backend
-"s3"` block, native locking via `use_lockfile`) — not local state, so
+The v1 (`ec2-audit-mcp`) stack is **deployed and verified end-to-end**
+against the real AWS account: a real audit request flows through every hop
+(Strands Agent on AgentCore Runtime → AgentCore Gateway → API Gateway →
+internal ALB → ECS Fargate `ec2-audit-mcp`/`report-mcp`) and a real
+Markdown report comes back. `iam-audit-mcp` (added afterward) has its
+Terraform wired up and a passing local test suite, but **has not been
+applied/deployed yet** — don't assume its ECS service, target group, or
+Gateway target actually exist until `terraform apply` has been run against
+it specifically. `ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and `agent`
+each have passing local test suites. Terraform state lives in S3
+(`terraform/versions.tf`'s `backend "s3"` block, native locking via
+`use_lockfile`) — not local state, so
 `terraform plan`/`apply` need real AWS credentials and read/write access to
 the `coresample-tfstate-293528978619` bucket to do anything useful. To
 confirm current resource state directly: `aws bedrockagentcore-control
@@ -60,7 +65,7 @@ This mirrors `.github/workflows/test.yml` — if these pass locally, the
 `test` status check will pass.
 
 ```bash
-# Each Python service (ec2-audit-mcp, report-mcp, agent) the same way:
+# Each Python service (ec2-audit-mcp, iam-audit-mcp, report-mcp, agent) the same way:
 cd ec2-audit-mcp && uv venv .venv -p 3.11 && uv pip install -p .venv -r requirements.txt
 .venv/bin/pytest
 
@@ -77,6 +82,11 @@ ec2-audit-mcp/    EC2 audit checks (untagged instances, public IPs, permissive
                   security groups), FastMCP server, streamable-HTTP transport.
                   No credentials accepted as input -- uses the Fargate task
                   role via boto3's default credential chain.
+iam-audit-mcp/    IAM audit checks (console users without MFA, stale/unused
+                  credentials, root account risk), same FastMCP/streamable-
+                  HTTP shape and credential model as ec2-audit-mcp. Policy-
+                  wildcard scan deferred to v1.1 (see README "Future
+                  expansions").
 report-mcp/       Findings -> Markdown report, decoupled from audit logic.
                   Also persists each report to S3 (storage.py) and notes the
                   s3:// location alongside the inline report text. HTML/PDF
