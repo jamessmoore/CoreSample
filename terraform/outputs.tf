@@ -15,6 +15,10 @@ output "iam_audit_mcp_ecr_repository_url" {
   value = aws_ecr_repository.iam_audit_mcp.repository_url
 }
 
+output "s3_audit_mcp_ecr_repository_url" {
+  value = aws_ecr_repository.s3_audit_mcp.repository_url
+}
+
 output "agentcore_gateway_url" {
   value = aws_bedrockagentcore_gateway.this.gateway_url
 }

@@ -25,6 +25,7 @@ matters, severity, an example finding, and remediation).
 |---|---|---|
 | EC2 | 3 checks | [ec2.md](docs/checks/ec2.md) |
 | IAM | 4 checks | [iam.md](docs/checks/iam.md) |
+| S3 | 4 checks | [s3.md](docs/checks/s3.md) |
 
 ## Architecture
 
@@ -44,6 +45,7 @@ Internal ALB                          neither satisfied by a bare ALB
 ECS Fargate
   - ec2-audit-mcp   (untagged instances, public IPs, permissive security groups)
   - iam-audit-mcp   (console users without MFA, stale/unused credentials, root risk)
+  - s3-audit-mcp    (public buckets, public-access-block gaps, encryption, versioning)
   - report-mcp      (findings -> client-ready Markdown report)
         |  read-only IAM role, scoped per service
         v
@@ -102,6 +104,11 @@ ec2-audit-mcp/    EC2 audit checks (ported from aws-audit-mcp), FastMCP server,
 iam-audit-mcp/    IAM audit checks (console users without MFA, stale/unused
                   credentials, root account risk), same FastMCP/streamable-
                   HTTP shape as ec2-audit-mcp
+s3-audit-mcp/     S3 audit checks (public buckets, public-access-block gaps,
+                  missing encryption/versioning), same FastMCP/streamable-
+                  HTTP shape as ec2-audit-mcp. Buckets are regional like EC2
+                  instances (unlike IAM) -- filtered by actual bucket
+                  region, resolved via get_bucket_location.
 report-mcp/       Findings -> Markdown report, persisted to S3 (storage.py)
                   in addition to being returned inline. HTML/PDF deferred
                   (v1 ships Markdown only, to keep the image lean -- see
@@ -121,13 +128,16 @@ terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
 
 ## Status
 
-**Deployed and verified end-to-end** against my real AWS account: a real
-audit request flows through every hop (Strands Agent on AgentCore Runtime →
-AgentCore Gateway → API Gateway → internal ALB → ECS Fargate
-`ec2-audit-mcp`/`iam-audit-mcp`/`report-mcp`) and a real combined Markdown
-report comes back. `ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and
-`agent` all have passing local test suites. Terraform state lives in S3
-with native locking — see "Terraform state backend" below.
+`ec2-audit-mcp` and `iam-audit-mcp` are **deployed and verified end-to-end**
+against my real AWS account: a real audit request flows through every hop
+(Strands Agent on AgentCore Runtime → AgentCore Gateway → API Gateway →
+internal ALB → ECS Fargate) and a real combined Markdown report comes back.
+`s3-audit-mcp` is code-complete with its Terraform wired up and a passing
+local test suite, but **has not been applied/deployed yet** — don't assume
+its ECS service, target group, or Gateway target actually exist.
+`ec2-audit-mcp`, `iam-audit-mcp`, `s3-audit-mcp`, `report-mcp`, and `agent`
+all have passing local test suites. Terraform state lives in S3 with
+native locking — see "Terraform state backend" below.
 
 Known gaps:
 - `awscc_bedrockagentcore_runtime.agent_runtime_name`'s allowed character
@@ -156,9 +166,10 @@ Known gaps:
 - [x] Strands agent (`agent/`) implementing the Runtime HTTP contract
 - [x] First real deploy + end-to-end audit run against my own account
 - [x] Port IAM audit checks into `iam-audit-mcp`
+- [x] Port S3 audit checks into `s3-audit-mcp` (Terraform wired up, not yet applied)
 
-Out of scope for v1: `s3-audit-mcp`, multi-account support, any UI beyond
-the generated report.
+Out of scope for v1: multi-account support, any UI beyond the generated
+report.
 
 ## Audit checks
 
@@ -174,6 +185,9 @@ cd ec2-audit-mcp && uv venv .venv -p 3.11 && uv pip install -p .venv -r requirem
 .venv/bin/python -m pytest tests/ -v
 
 cd ../iam-audit-mcp && uv venv .venv -p 3.11 && uv pip install -p .venv -r requirements.txt
+.venv/bin/python -m pytest tests/ -v
+
+cd ../s3-audit-mcp && uv venv .venv -p 3.11 && uv pip install -p .venv -r requirements.txt
 .venv/bin/python -m pytest tests/ -v
 
 cd ../report-mcp && uv venv .venv -p 3.11 && uv pip install -p .venv -r requirements.txt
@@ -238,11 +252,12 @@ its API operation name exactly.
    apply everything else.
    ```
    cd terraform
-   terraform apply -target=aws_ecr_repository.ec2_audit_mcp -target=aws_ecr_repository.iam_audit_mcp -target=aws_ecr_repository.report_mcp -target=aws_ecr_repository.agent
+   terraform apply -target=aws_ecr_repository.ec2_audit_mcp -target=aws_ecr_repository.iam_audit_mcp -target=aws_ecr_repository.s3_audit_mcp -target=aws_ecr_repository.report_mcp -target=aws_ecr_repository.agent
 
    aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <account_id>.dkr.ecr.<region>.amazonaws.com
    docker build -t <ec2_audit_mcp_repo_url>:latest ../ec2-audit-mcp && docker push <ec2_audit_mcp_repo_url>:latest
    docker build -t <iam_audit_mcp_repo_url>:latest ../iam-audit-mcp && docker push <iam_audit_mcp_repo_url>:latest
+   docker build -t <s3_audit_mcp_repo_url>:latest ../s3-audit-mcp && docker push <s3_audit_mcp_repo_url>:latest
    docker build -t <report_mcp_repo_url>:latest ../report-mcp && docker push <report_mcp_repo_url>:latest
    docker buildx build --platform linux/arm64 --provenance=false -t <agent_repo_url>:latest ../agent --push
 
@@ -262,7 +277,6 @@ its API operation name exactly.
 
 ## Future expansions
 
-- `s3-audit-mcp`
 - **`iam-audit-mcp` policy-wildcard scan (v1.1)** — flag directly-attached
   user policies containing `Action: "*"` / `Resource: "*"` (critical
   severity). Deferred out of the initial `iam-audit-mcp` round; the other

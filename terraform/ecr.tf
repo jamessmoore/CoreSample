@@ -16,6 +16,15 @@ resource "aws_ecr_repository" "iam_audit_mcp" {
   }
 }
 
+resource "aws_ecr_repository" "s3_audit_mcp" {
+  name                 = "${var.project_name}/s3-audit-mcp"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
 resource "aws_ecr_repository" "report_mcp" {
   name                 = "${var.project_name}/report-mcp"
   image_tag_mutability = "MUTABLE"
