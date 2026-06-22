@@ -70,10 +70,9 @@ provider schema:
 
 Every resource/attribute name in `terraform/` below was checked against the
 real provider schema (`terraform providers schema -json` against the
-installed `hashicorp/aws` v6.51.0 and `hashicorp/awscc` v1.89.0 providers)
-and `terraform validate`/`terraform plan` both pass clean against my actual
-AWS account (no resources created — plan only reads existing VPC/subnet
-data).
+installed `hashicorp/aws` v6.51.0 and `hashicorp/awscc` v1.89.0 providers),
+and `terraform validate`/`terraform plan`/`terraform apply` have all run
+clean against my actual AWS account — see "Status" below.
 
 **Design principles, maintained as this grows:**
 - One MCP server per audited AWS service — never a monolith. Adding a new
@@ -125,16 +124,28 @@ terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
 **Deployed and verified end-to-end** against my real AWS account: a real
 audit request flows through every hop (Strands Agent on AgentCore Runtime →
 AgentCore Gateway → API Gateway → internal ALB → ECS Fargate
-`ec2-audit-mcp`/`report-mcp`) and a real Markdown report comes back.
-`ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and `agent` all have passing
-local test suites. Terraform state lives in S3 with native locking — see
-"Terraform state backend" below.
+`ec2-audit-mcp`/`iam-audit-mcp`/`report-mcp`) and a real combined Markdown
+report comes back. `ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and
+`agent` all have passing local test suites. Terraform state lives in S3
+with native locking — see "Terraform state backend" below.
 
 Known gaps:
 - `awscc_bedrockagentcore_runtime.agent_runtime_name`'s allowed character
   set is unconfirmed (currently `replace(var.project_name, "-", "_")` as a
   guess) — hasn't caused a problem in practice yet, but isn't confirmed
   against AWS's actual validation rules either.
+- `report-mcp`'s renderer (`report.py`'s `_all_findings()`) only recognizes
+  `ec2-audit-mcp`'s finding-category keys. A real end-to-end run confirmed
+  the agent's chat response correctly summarizes `iam-audit-mcp` findings
+  too, but the **persisted Markdown report currently omits the IAM
+  section** — `_all_findings()` needs to handle multiple services' finding
+  shapes generically, not just EC2's three category names.
+- `agent/strands_agent.py`'s `SYSTEM_PROMPT` only explicitly walks through
+  calling "the EC2 audit tool" — it predates `iam-audit-mcp`. A generic
+  prompt like `"audit us-west-2"` may only trigger the EC2 check; getting
+  both currently requires asking explicitly (confirmed: a prompt that named
+  both tools by name correctly called `audit_ec2` *and* `audit_iam`). The
+  system prompt should name both tools once a second non-EC2 server exists.
 
 ## v1 scope
 
@@ -237,6 +248,14 @@ its API operation name exactly.
 
    terraform apply
    ```
+   The AgentCore Gateway target for a brand-new MCP server can fail on this
+   first `apply` with `Failed to connect and fetch tools from the provided
+   MCP target server` -- it tries to connect before the new ECS service has
+   passed its ALB health check. Confirm the service reached steady state
+   (`aws ecs describe-services`) and the target is `healthy`
+   (`aws elbv2 describe-target-health`), then re-run `terraform apply` --
+   everything else is already created, so it only retries the gateway
+   target.
 3. Invoke the agent once deployed (boto3 `bedrock-agentcore` client, or the
    AWS CLI's `bedrock-agentcore` commands) with a prompt like
    `"audit us-west-2"` and confirm a real Markdown report comes back.

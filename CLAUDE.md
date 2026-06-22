@@ -7,12 +7,12 @@ Guidance for Claude Code when working in this repository.
 CoreSample is an AWS-native security/compliance audit framework: a Strands
 agent (on Amazon Bedrock AgentCore Runtime) orchestrates calls through an
 AgentCore Gateway to MCP servers running read-only audits against the
-account's own resources (`ec2-audit-mcp` first, more to follow), with a
-decoupled `report-mcp` turning findings into a client-ready Markdown
-report. The pitch: audit logic, model invocation, and AWS API calls all
-happen inside the account boundary — no external service reaches in. For
-compliance-minded enterprises, that's the whole point — and it's exactly what
-this repo sets out to prove. See
+account's own resources (`ec2-audit-mcp` and `iam-audit-mcp` so far, more to
+follow), with a decoupled `report-mcp` turning findings into a client-ready
+Markdown report. The pitch: audit logic, model invocation, and AWS API
+calls all happen inside the account boundary — no external service reaches
+in. For compliance-minded enterprises, that's the whole point — and it's
+exactly what this repo sets out to prove. See
 `README.md` for the full architecture, including what changed from the
 original kickoff plan and why (classic Bedrock Agents can't target an
 AgentCore Gateway; a bare ALB can't satisfy the Gateway target's HTTPS/
@@ -23,16 +23,21 @@ re-platformed onto Bedrock/AgentCore instead of an external API.
 
 ## Current status — read before assuming anything is stale
 
-The v1 (`ec2-audit-mcp`) stack is **deployed and verified end-to-end**
-against the real AWS account: a real audit request flows through every hop
-(Strands Agent on AgentCore Runtime → AgentCore Gateway → API Gateway →
-internal ALB → ECS Fargate `ec2-audit-mcp`/`report-mcp`) and a real
-Markdown report comes back. `iam-audit-mcp` (added afterward) has its
-Terraform wired up and a passing local test suite, but **has not been
-applied/deployed yet** — don't assume its ECS service, target group, or
-Gateway target actually exist until `terraform apply` has been run against
-it specifically. `ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and `agent`
-each have passing local test suites. Terraform state lives in S3
+The full v1 stack — `ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and
+`agent` — is **deployed and verified end-to-end** against the real AWS
+account: a real audit request flows through every hop (Strands Agent on
+AgentCore Runtime → AgentCore Gateway → API Gateway → internal ALB → ECS
+Fargate `ec2-audit-mcp`/`iam-audit-mcp`/`report-mcp`) and a real combined
+Markdown report comes back. All four have passing local test suites.
+
+Known gap: `report-mcp`'s renderer (`report.py`'s `_all_findings()`) only
+recognizes `ec2-audit-mcp`'s finding-category keys. The agent's chat
+response correctly summarizes `iam-audit-mcp` findings too (confirmed via a
+real invocation), but the **persisted Markdown report currently omits the
+IAM section** — `_all_findings()` needs to handle multiple services'
+finding shapes generically, not just EC2's three category names.
+
+Terraform state lives in S3
 (`terraform/versions.tf`'s `backend "s3"` block, native locking via
 `use_lockfile`) — not local state, so
 `terraform plan`/`apply` need real AWS credentials and read/write access to
@@ -103,7 +108,7 @@ terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   (versions.tf) -- the bucket is bootstrapped out of band,
                   see README "Terraform state backend".
 .github/workflows/
-  test.yml        CI gate: pytest (x3 services) + terraform fmt/validate,
+  test.yml        CI gate: pytest (x4 services) + terraform fmt/validate,
                   on every PR to main and push to main.
 ```
 
