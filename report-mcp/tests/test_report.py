@@ -1,5 +1,11 @@
 import pytest
-from report import generate_markdown_report, _all_findings, _risk_posture, _executive_summary
+from report import (
+    generate_markdown_report,
+    merge_findings,
+    _all_findings,
+    _risk_posture,
+    _executive_summary,
+)
 
 
 @pytest.fixture
@@ -242,6 +248,42 @@ class TestExecutiveSummary:
         assert "Root Account Risk" in summary
         assert "Public Bucket" in summary
         assert "Permissive Security Group" in summary
+
+
+class TestMergeFindings:
+    def test_merges_categories_from_multiple_services(
+        self, findings_with_all_issues, iam_findings, s3_findings
+    ):
+        merged = merge_findings([findings_with_all_issues, iam_findings, s3_findings])
+        assert len(_all_findings(merged)) == 12
+
+    def test_recomputes_summary_from_merged_categories(self):
+        # Deliberately wrong input summaries -- merge_findings must ignore
+        # them and recompute from the actual merged category data instead
+        # of trusting (or summing) whatever the inputs claimed.
+        service_a = {
+            "category_a": [{"severity": "critical", "recommendation": "fix it"}],
+            "summary": {"total_findings": 999, "critical": 0, "high": 999},
+        }
+        service_b = {
+            "category_b": [{"severity": "high", "recommendation": "fix it too"}],
+            "summary": {"total_findings": 1, "critical": 1, "high": 0},
+        }
+        merged = merge_findings([service_a, service_b])
+        assert merged["summary"] == {"total_findings": 2, "critical": 1, "high": 1}
+
+    def test_empty_list_returns_clean_summary(self):
+        merged = merge_findings([])
+        assert merged["summary"] == {"total_findings": 0, "critical": 0, "high": 0}
+
+    def test_single_input_preserves_its_categories(self, findings_with_all_issues):
+        merged = merge_findings([findings_with_all_issues])
+        assert merged["untagged_instances"] == findings_with_all_issues["untagged_instances"]
+        assert merged["security_group_issues"] == findings_with_all_issues["security_group_issues"]
+
+    def test_does_not_concatenate_input_summaries_as_a_list(self, findings_with_all_issues, iam_findings):
+        merged = merge_findings([findings_with_all_issues, iam_findings])
+        assert isinstance(merged["summary"], dict)
 
 
 class TestMarkdownReport:

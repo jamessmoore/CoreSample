@@ -30,13 +30,20 @@ Runtime → AgentCore Gateway → API Gateway → internal ALB → ECS Fargate)
 for all three audit services, and a real combined Markdown report comes
 back. All five have passing local test suites.
 
-Known gap: `report-mcp`'s renderer (`report.py`'s `_all_findings()`) is now
-table-driven and recognizes every `ec2-audit-mcp`/`iam-audit-mcp`/
-`s3-audit-mcp` finding-category key (fixed in code), but **the deployed
-`report-mcp` container is still running the pre-fix image** — it hasn't
-been rebuilt/pushed/redeployed yet, so live persisted reports still only
-show the EC2 section until that happens. Don't assume this is fixed in
-production just because it's fixed in `main`.
+Known gap: `report-mcp`'s `generate_report` tool used to take a single
+`audit_json` string, which forced the agent to hand-merge multiple tool
+calls' JSON into one blob itself before calling it -- unreliable LLM
+behavior. Confirmed in production: one run kept only EC2's raw data with a
+patched summary count, the next produced an empty "CLEAN" report with no
+category data at all despite real findings existing. Fixed by changing the
+tool to accept `audit_jsons: list[str]` (each tool's raw, unmodified
+output) and merging deterministically in `report.py`'s `merge_findings()`,
+which recomputes the summary from the merged categories instead of
+trusting the inputs. `agent/strands_agent.py`'s `SYSTEM_PROMPT` was
+rewritten to name all three audit tools and forbid hand-merging.
+**Fixed in code but not yet deployed** -- both `report-mcp` and `agent`
+need to be rebuilt/pushed/redeployed before this is live. Don't assume
+this is fixed in production just because it's fixed in `main`.
 
 Terraform state lives in S3
 (`terraform/versions.tf`'s `backend "s3"` block, native locking via

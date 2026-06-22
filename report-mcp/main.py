@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 
-from report import generate_markdown_report
+from report import generate_markdown_report, merge_findings
 from storage import upload_report
 
 logging.basicConfig(level=logging.INFO)
@@ -26,18 +26,26 @@ async def health(_request: Request) -> PlainTextResponse:
 
 @mcp.tool()
 def generate_report(
-    audit_json: str,
+    audit_jsons: list[str],
     format: str = "markdown",
     region: str = "unknown",
     account_id: str = "N/A",
 ) -> str:
     """
-    Generate a formatted audit report from the JSON output of an audit tool
-    (e.g. ec2-audit-mcp's audit_ec2). Decoupled from any specific audit
-    server -- accepts the {category: [...], summary: {...}} findings shape.
+    Generate a formatted audit report from the JSON output of one or more
+    audit tools (e.g. ec2-audit-mcp's audit_ec2, iam-audit-mcp's audit_iam,
+    s3-audit-mcp's audit_s3). Decoupled from any specific audit server --
+    each entry in audit_jsons should be the {category: [...], summary: {
+    ...}} findings shape an audit tool returns, passed through unmodified.
+
+    Pass every audit tool's raw output as its own entry in this list --
+    do not edit, merge, or recompute the JSON yourself first. Merging
+    across services happens here, deterministically, specifically because
+    having the caller hand-merge multiple tool outputs into one JSON blob
+    produced inconsistent/incomplete reports in practice.
 
     Args:
-        audit_json:  JSON string from an audit tool
+        audit_jsons: List of JSON strings, one per audit tool call.
         format:      Output format -- only "markdown" is implemented in v1.
                      "html"/"pdf" are queued (WeasyPrint adds real image
                      weight; deferring until needed keeps this server lean).
@@ -48,9 +56,9 @@ def generate_report(
         Markdown report string, or an error/not-implemented JSON object.
     """
     try:
-        findings = json.loads(audit_json)
+        findings = merge_findings([json.loads(s) for s in audit_jsons])
     except json.JSONDecodeError as e:
-        return json.dumps({"error": f"Invalid audit_json -- could not parse: {str(e)}"})
+        return json.dumps({"error": f"Invalid entry in audit_jsons -- could not parse: {str(e)}"})
 
     fmt = format.lower().strip()
 
