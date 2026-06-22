@@ -7,12 +7,12 @@ Guidance for Claude Code when working in this repository.
 CoreSample is an AWS-native security/compliance audit framework: a Strands
 agent (on Amazon Bedrock AgentCore Runtime) orchestrates calls through an
 AgentCore Gateway to MCP servers running read-only audits against the
-account's own resources (`ec2-audit-mcp` and `iam-audit-mcp` so far, more to
-follow), with a decoupled `report-mcp` turning findings into a client-ready
-Markdown report. The pitch: audit logic, model invocation, and AWS API
-calls all happen inside the account boundary — no external service reaches
-in. For compliance-minded enterprises, that's the whole point — and it's
-exactly what this repo sets out to prove. See
+account's own resources (`ec2-audit-mcp`, `iam-audit-mcp`, and `s3-audit-mcp`
+so far, more to follow), with a decoupled `report-mcp` turning findings
+into a client-ready Markdown report. The pitch: audit logic, model
+invocation, and AWS API calls all happen inside the account boundary — no
+external service reaches in. For compliance-minded enterprises, that's the
+whole point — and it's exactly what this repo sets out to prove. See
 `README.md` for the full architecture, including what changed from the
 original kickoff plan and why (classic Bedrock Agents can't target an
 AgentCore Gateway; a bare ALB can't satisfy the Gateway target's HTTPS/
@@ -23,12 +23,16 @@ re-platformed onto Bedrock/AgentCore instead of an external API.
 
 ## Current status — read before assuming anything is stale
 
-The full v1 stack — `ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and
-`agent` — is **deployed and verified end-to-end** against the real AWS
-account: a real audit request flows through every hop (Strands Agent on
-AgentCore Runtime → AgentCore Gateway → API Gateway → internal ALB → ECS
-Fargate `ec2-audit-mcp`/`iam-audit-mcp`/`report-mcp`) and a real combined
-Markdown report comes back. All four have passing local test suites.
+`ec2-audit-mcp`, `iam-audit-mcp`, `report-mcp`, and `agent` are **deployed
+and verified end-to-end** against the real AWS account: a real audit
+request flows through every hop (Strands Agent on AgentCore Runtime →
+AgentCore Gateway → API Gateway → internal ALB → ECS Fargate) and a real
+combined Markdown report comes back. `s3-audit-mcp` is code-complete with
+its Terraform wired up and a passing local test suite, but **has not been
+applied/deployed yet** — don't assume its ECS service, target group, or
+Gateway target exist until `terraform apply` has been run against it
+specifically (same situation `iam-audit-mcp` was in before its own deploy).
+All five services have passing local test suites.
 
 Known gap: `report-mcp`'s renderer (`report.py`'s `_all_findings()`) only
 recognizes `ec2-audit-mcp`'s finding-category keys. The agent's chat
@@ -70,7 +74,7 @@ This mirrors `.github/workflows/test.yml` — if these pass locally, the
 `test` status check will pass.
 
 ```bash
-# Each Python service (ec2-audit-mcp, iam-audit-mcp, report-mcp, agent) the same way:
+# Each Python service (ec2-audit-mcp, iam-audit-mcp, s3-audit-mcp, report-mcp, agent) the same way:
 cd ec2-audit-mcp && uv venv .venv -p 3.11 && uv pip install -p .venv -r requirements.txt
 .venv/bin/pytest
 
@@ -92,6 +96,12 @@ iam-audit-mcp/    IAM audit checks (console users without MFA, stale/unused
                   HTTP shape and credential model as ec2-audit-mcp. Policy-
                   wildcard scan deferred to v1.1 (see README "Future
                   expansions").
+s3-audit-mcp/     S3 audit checks (public buckets, public-access-block gaps,
+                  missing encryption/versioning), same FastMCP/streamable-
+                  HTTP shape and credential model as ec2-audit-mcp. Buckets
+                  are regional (unlike IAM) -- filtered by actual bucket
+                  region via get_bucket_location. Not yet deployed -- see
+                  "Current status" above.
 report-mcp/       Findings -> Markdown report, decoupled from audit logic.
                   Also persists each report to S3 (storage.py) and notes the
                   s3:// location alongside the inline report text. HTML/PDF
@@ -108,7 +118,7 @@ terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   (versions.tf) -- the bucket is bootstrapped out of band,
                   see README "Terraform state backend".
 .github/workflows/
-  test.yml        CI gate: pytest (x4 services) + terraform fmt/validate,
+  test.yml        CI gate: pytest (x5 services) + terraform fmt/validate,
                   on every PR to main and push to main.
 ```
 

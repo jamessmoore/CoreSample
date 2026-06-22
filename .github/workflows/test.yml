@@ -33,6 +33,14 @@ jobs:
         run: pytest
         working-directory: iam-audit-mcp
 
+      - name: Install s3-audit-mcp dependencies
+        run: pip install -r requirements.txt
+        working-directory: s3-audit-mcp
+
+      - name: Unit tests (s3-audit-mcp)
+        run: pytest
+        working-directory: s3-audit-mcp
+
       - name: Install report-mcp dependencies
         run: pip install -r requirements.txt
         working-directory: report-mcp

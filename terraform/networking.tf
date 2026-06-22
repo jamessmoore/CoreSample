@@ -66,6 +66,14 @@ resource "aws_vpc_security_group_ingress_rule" "alb_from_vpc_link_iam_audit" {
   ip_protocol                  = "tcp"
 }
 
+resource "aws_vpc_security_group_ingress_rule" "alb_from_vpc_link_s3_audit" {
+  security_group_id            = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.vpc_link.id
+  from_port                    = 8004
+  to_port                      = 8004
+  ip_protocol                  = "tcp"
+}
+
 resource "aws_security_group" "mcp_tasks" {
   name        = "${var.project_name}-mcp-tasks"
   description = "Ingress from the ALB only, to the MCP server Fargate tasks"
@@ -124,5 +132,16 @@ resource "aws_lb_listener" "iam_audit_mcp" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.iam_audit_mcp.arn
+  }
+}
+
+resource "aws_lb_listener" "s3_audit_mcp" {
+  load_balancer_arn = aws_lb.mcp.arn
+  port              = 8004
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.s3_audit_mcp.arn
   }
 }

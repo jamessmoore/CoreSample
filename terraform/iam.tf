@@ -101,6 +101,61 @@ resource "aws_iam_role_policy" "iam_audit_mcp_readonly" {
   })
 }
 
+# --- s3-audit-mcp task role ---------------------------------------------------
+# Same compliance talking point as ec2_audit_mcp_task/iam_audit_mcp_task:
+# read-only, scoped to exactly the actions the auditor calls. No write/
+# modify permissions anywhere. Credentials never leave this role --
+# s3-audit-mcp never accepts them as input (see s3-audit-mcp/audit.py).
+#
+# Two statements because of how S3 scopes resources: ListAllMyBuckets is an
+# account-level action with no bucket to scope to (must be "*"), while the
+# rest are bucket-level Get* actions that DO support resource-level
+# scoping -- scoped to every bucket ("arn:aws:s3:::*") since the auditor
+# doesn't know bucket names ahead of time and must inspect all of them.
+
+resource "aws_iam_role" "s3_audit_mcp_task" {
+  name = "${var.project_name}-s3-audit-mcp-task"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "s3_audit_mcp_readonly" {
+  name = "${var.project_name}-s3-readonly"
+  role = aws_iam_role.s3_audit_mcp_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "S3AuditListBuckets"
+        Effect   = "Allow"
+        Action   = "s3:ListAllMyBuckets"
+        Resource = "*" # account-level action -- no bucket ARN to scope to
+      },
+      {
+        Sid    = "S3AuditReadOnly"
+        Effect = "Allow"
+        Action = [
+          "s3:GetBucketLocation",
+          "s3:GetBucketAcl",
+          "s3:GetBucketPolicyStatus",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetEncryptionConfiguration",
+          "s3:GetBucketVersioning",
+        ]
+        Resource = "arn:aws:s3:::*" # every bucket -- names aren't known ahead of time
+      },
+    ]
+  })
+}
+
 # --- report-mcp task role ----------------------------------------------------
 # report-mcp transforms JSON into Markdown and writes the result to the
 # reports bucket (terraform/s3.tf) -- the only AWS API call it makes.
