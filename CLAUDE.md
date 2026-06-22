@@ -30,20 +30,33 @@ Runtime → AgentCore Gateway → API Gateway → internal ALB → ECS Fargate)
 for all three audit services, and a real combined Markdown report comes
 back. All five have passing local test suites.
 
-Known gap: `report-mcp`'s `generate_report` tool used to take a single
-`audit_json` string, which forced the agent to hand-merge multiple tool
-calls' JSON into one blob itself before calling it -- unreliable LLM
-behavior. Confirmed in production: one run kept only EC2's raw data with a
-patched summary count, the next produced an empty "CLEAN" report with no
-category data at all despite real findings existing. Fixed by changing the
-tool to accept `audit_jsons: list[str]` (each tool's raw, unmodified
-output) and merging deterministically in `report.py`'s `merge_findings()`,
-which recomputes the summary from the merged categories instead of
-trusting the inputs. `agent/strands_agent.py`'s `SYSTEM_PROMPT` was
-rewritten to name all three audit tools and forbid hand-merging.
-**Fixed in code but not yet deployed** -- both `report-mcp` and `agent`
-need to be rebuilt/pushed/redeployed before this is live. Don't assume
-this is fixed in production just because it's fixed in `main`.
+`report-mcp`'s `generate_report` tool used to take a single `audit_json`
+string, which forced the agent to hand-merge multiple tool calls' JSON into
+one blob itself before calling it -- unreliable LLM behavior. Confirmed in
+production: one run kept only EC2's raw data with a patched summary count,
+the next produced an empty "CLEAN" report with no category data at all
+despite real findings existing. Fixed by changing the tool to accept
+`audit_jsons: list[str]` (each tool's raw, unmodified output) and merging
+deterministically in `report.py`'s `merge_findings()`, which recomputes the
+summary from the merged categories instead of trusting the inputs.
+`agent/strands_agent.py`'s `SYSTEM_PROMPT` was rewritten to name all three
+audit tools and forbid hand-merging. **Deployed and verified** -- a real
+post-redeploy audit run produced a correctly-merged 4-finding report across
+EC2 and S3, persisted to S3 intact.
+
+Getting this live also surfaced a general gotcha worth remembering: after
+redeploying an MCP server with a *changed tool signature* (new/renamed/
+retyped parameters), the AgentCore Gateway target for that server still
+serves the old cached schema -- it fetches a target's tool list once, at
+target-creation time, and never re-fetches it just because the underlying
+ECS service redeployed. Symptom: the agent reports the tool "requires a
+field that isn't exposed in the tool's schema" even though the new code is
+correctly deployed and the agent is calling it correctly. Fix: force the
+Gateway target to re-register, the same `-replace` trick used for the
+Runtime's `:latest`-tag image problem:
+`terraform apply -replace=aws_bedrockagentcore_gateway_target.report_mcp`.
+Any future change to an MCP tool's parameters needs this same step, not
+just an ECS redeploy.
 
 Terraform state lives in S3
 (`terraform/versions.tf`'s `backend "s3"` block, native locking via
