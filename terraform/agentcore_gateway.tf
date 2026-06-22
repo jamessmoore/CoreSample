@@ -81,6 +81,26 @@ resource "aws_bedrockagentcore_gateway_target" "ec2_audit_mcp" {
   }
 }
 
+resource "aws_bedrockagentcore_gateway_target" "iam_audit_mcp" {
+  gateway_identifier = aws_bedrockagentcore_gateway.this.gateway_id
+  name               = "iam-audit-mcp"
+  description        = "IAM security/compliance audit checks"
+
+  target_configuration {
+    mcp {
+      mcp_server {
+        endpoint = "${aws_apigatewayv2_stage.default.invoke_url}iam-audit/mcp"
+      }
+    }
+  }
+
+  credential_provider_configuration {
+    gateway_iam_role {
+      service = "execute-api"
+    }
+  }
+}
+
 resource "aws_bedrockagentcore_gateway_target" "report_mcp" {
   gateway_identifier = aws_bedrockagentcore_gateway.this.gateway_id
   name               = "report-mcp"
