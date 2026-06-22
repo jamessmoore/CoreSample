@@ -101,29 +101,25 @@ terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   API Gateway HTTP API + VPC Link, AgentCore Gateway +
                   targets, AgentCore Runtime (awscc provider), an S3 bucket
                   for generated reports, least-privilege IAM throughout.
+                  Remote state in S3 with native locking -- see "Terraform
+                  state backend" below.
 ```
 
 ## Status
 
-v1 Terraform scaffold complete and validated (`terraform validate` +
-`terraform plan` clean against my real AWS account — 40 resources to add, 0
-errors). `ec2-audit-mcp`, `report-mcp`, and `agent` all have passing local
-test suites. **Nothing has been deployed yet** — `terraform apply` has not
-been run.
+**Deployed and verified end-to-end** against my real AWS account: a real
+audit request flows through every hop (Strands Agent on AgentCore Runtime →
+AgentCore Gateway → API Gateway → internal ALB → ECS Fargate
+`ec2-audit-mcp`/`report-mcp`) and a real Markdown report comes back.
+`ec2-audit-mcp`, `report-mcp`, and `agent` all have passing local test
+suites. Terraform state lives in S3 with native locking — see "Terraform
+state backend" below.
 
-Known gaps before a real deploy:
-- `terraform/ecs.tf`'s ALB target group health check assumes FastMCP's
-  streamable-HTTP route is `/mcp` — confirm against the installed `mcp` SDK
-  version.
-- ~~`terraform/agentcore_runtime.tf`'s IAM policy~~ — verified against AWS's
-  published execution-role policy. No ECR repository resource policy is
-  needed (unlike Lambda); the execution role's own permissions are
-  sufficient, now matching AWS's reference policy exactly (X-Ray, scoped
-  CloudWatch metrics, workload-identity token actions) plus the
-  `InvokeGateway` addition for calling the Gateway specifically.
+Known gaps:
 - `awscc_bedrockagentcore_runtime.agent_runtime_name`'s allowed character
   set is unconfirmed (currently `replace(var.project_name, "-", "_")` as a
-  guess).
+  guess) — hasn't caused a problem in practice yet, but isn't confirmed
+  against AWS's actual validation rules either.
 
 ## v1 scope
 
@@ -132,7 +128,7 @@ Known gaps before a real deploy:
 - [x] Terraform for Fargate + API Gateway/VPC Link + AgentCore Gateway +
       AgentCore Runtime + least-privilege IAM, schema-validated end to end
 - [x] Strands agent (`agent/`) implementing the Runtime HTTP contract
-- [ ] First real deploy + end-to-end audit run against my own account
+- [x] First real deploy + end-to-end audit run against my own account
 
 Out of scope for v1: `iam-audit-mcp`, `s3-audit-mcp`, multi-account support,
 any UI beyond the generated report.
@@ -163,6 +159,41 @@ terraform init -backend=false
 terraform validate
 terraform plan -var="bedrock_model_id=<your model/inference-profile id>"
 ```
+
+## Terraform state backend
+
+Terraform state lives in S3, not locally — `terraform/versions.tf`'s
+`backend "s3"` block. Locking is native S3 conditional writes
+(`use_lockfile = true`), which needs **Terraform 1.10+** — no DynamoDB lock
+table required. Same pattern as
+[`daily-tech-brief-bedrock`](https://github.com/jamessmoore/daily-tech-brief-bedrock/blob/main/terraform/main.tf).
+
+The bucket can't be created by the same config that uses it as a backend
+(chicken-and-egg), so it's bootstrapped out of band, once:
+
+```bash
+aws s3api create-bucket --bucket coresample-tfstate-<account_id> \
+  --region <region> --create-bucket-configuration LocationConstraint=<region>
+aws s3api put-bucket-versioning --bucket coresample-tfstate-<account_id> \
+  --versioning-configuration Status=Enabled
+aws s3api put-bucket-encryption --bucket coresample-tfstate-<account_id> \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+aws s3api put-public-access-block --bucket coresample-tfstate-<account_id> \
+  --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+Then point `terraform/versions.tf`'s `backend "s3"` block at that bucket
+(bucket name, key, region — see the existing block for the deployed
+instance's values, currently `coresample-tfstate-293528978619` in
+`us-west-2`). The IAM identity running `terraform init`/`plan`/`apply` needs
+`s3:CreateBucket`/`PutBucketVersioning`/`PutEncryptionConfiguration`/
+`PutBucketPublicAccessBlock` on the bucket for the one-time bootstrap, plus
+ongoing `s3:GetObject`/`PutObject`/`DeleteObject`/`ListBucket` on the bucket
+and its contents for every state read/write. Two of the bootstrap action
+names are easy to get wrong: the IAM action for the `PutBucketEncryption`
+API is `s3:PutEncryptionConfiguration`, and the IAM action for
+`PutPublicAccessBlock` is `s3:PutBucketPublicAccessBlock` — neither matches
+its API operation name exactly.
 
 ## Deploying
 
@@ -196,8 +227,6 @@ terraform plan -var="bedrock_model_id=<your model/inference-profile id>"
 - HTML/PDF report formats in `report-mcp` (WeasyPrint, same approach as
   `aws-audit-mcp`)
 - Cross-account role assumption
-- Remote Terraform state (S3 + native locking — see the pattern already in
-  use in `daily-tech-brief-bedrock`)
 
 ## Contributing
 

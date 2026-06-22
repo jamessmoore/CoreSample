@@ -23,13 +23,17 @@ re-platformed onto Bedrock/AgentCore instead of an external API.
 
 ## Current status — read before assuming anything is stale
 
-Terraform scaffold is complete and schema-validated (`terraform validate` +
-`terraform plan` clean against the real AWS account, 0 errors) but **nothing
-has been deployed** — `terraform apply` has not been run. `ec2-audit-mcp`,
-`report-mcp`, and `agent` each have passing local test suites. Don't assume
-any AWS infrastructure described in `terraform/` actually exists yet; check
-`aws bedrockagentcore-control list-gateways` / `list-agent-runtimes` /
-`aws ecs list-services` etc. if in doubt.
+The full v1 stack is **deployed and verified end-to-end** against the real
+AWS account: a real audit request flows through every hop (Strands Agent on
+AgentCore Runtime → AgentCore Gateway → API Gateway → internal ALB → ECS
+Fargate `ec2-audit-mcp`/`report-mcp`) and a real Markdown report comes back.
+`ec2-audit-mcp`, `report-mcp`, and `agent` each have passing local test
+suites. Terraform state lives in S3 (`terraform/versions.tf`'s `backend
+"s3"` block, native locking via `use_lockfile`) — not local state, so
+`terraform plan`/`apply` need real AWS credentials and read/write access to
+the `coresample-tfstate-293528978619` bucket to do anything useful. To
+confirm current resource state directly: `aws bedrockagentcore-control
+list-gateways` / `list-agent-runtimes` / `aws ecs list-services` etc.
 
 ## Required workflow — no direct commits to main
 
@@ -85,8 +89,9 @@ terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   API Gateway HTTP API + VPC Link, AgentCore Gateway +
                   targets, AgentCore Runtime (awscc provider), an S3 bucket
                   for generated reports (s3.tf), least-privilege IAM
-                  throughout. No remote state backend yet (solo project, no
-                  team state-sharing need at v1).
+                  throughout. Remote state in S3 with native locking
+                  (versions.tf) -- the bucket is bootstrapped out of band,
+                  see README "Terraform state backend".
 .github/workflows/
   test.yml        CI gate: pytest (x3 services) + terraform fmt/validate,
                   on every PR to main and push to main.
