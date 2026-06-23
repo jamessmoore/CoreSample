@@ -91,7 +91,8 @@ This mirrors `.github/workflows/test.yml` — if these pass locally, the
 `test` status check will pass.
 
 ```bash
-# Each Python service (ec2-audit-mcp, iam-audit-mcp, s3-audit-mcp, report-mcp, agent) the same way:
+# Each Python service (ec2-audit-mcp, iam-audit-mcp, s3-audit-mcp, report-mcp,
+# agent, integrations/security_hub) the same way:
 cd ec2-audit-mcp && uv venv .venv -p 3.11 && uv pip install -p .venv -r requirements.txt
 .venv/bin/pytest
 
@@ -127,6 +128,13 @@ agent/            Strands Agent + FastAPI, implementing the AgentCore Runtime
                   HTTP protocol contract (POST /invocations, GET /ping on
                   0.0.0.0:8080, ARM64). MCP client to the Gateway signs with
                   this Runtime's own IAM role via mcp-proxy-for-aws.
+integrations/
+  security_hub/   AWS Security Hub ASFF export (asff_mapper.py) -- designed,
+                  not yet activated. Not a deployed MCP service (no
+                  Dockerfile/main.py/terraform target): a standalone,
+                  unit-tested module, gated by ENABLE_SECURITY_HUB_EXPORT,
+                  not called anywhere in the live audit/report pipeline.
+                  See README "Future expansions".
 terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   API Gateway HTTP API + VPC Link, AgentCore Gateway +
                   targets, AgentCore Runtime (awscc provider), an S3 bucket
@@ -135,7 +143,7 @@ terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   (versions.tf) -- the bucket is bootstrapped out of band,
                   see README "Terraform state backend".
 .github/workflows/
-  test.yml        CI gate: pytest (x5 services) + terraform fmt/validate,
+  test.yml        CI gate: pytest (x6 services) + terraform fmt/validate,
                   on every PR to main and push to main.
 ```
 

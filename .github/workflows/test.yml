@@ -57,6 +57,14 @@ jobs:
         run: pytest
         working-directory: agent
 
+      - name: Install integrations/security_hub dependencies
+        run: pip install -r requirements.txt
+        working-directory: integrations/security_hub
+
+      - name: Unit tests (integrations/security_hub)
+        run: pytest
+        working-directory: integrations/security_hub
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:

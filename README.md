@@ -314,6 +314,17 @@ its API operation name exactly.
 - HTML/PDF report formats in `report-mcp` (WeasyPrint, same approach as
   `aws-audit-mcp`)
 - Cross-account role assumption
+- **AWS Security Hub integration (ASFF export)** —
+  `integrations/security_hub/asff_mapper.py` maps audit findings into
+  Security Hub's ASFF format for `BatchImportFindings`, so CoreSample
+  findings could correlate alongside GuardDuty/Inspector/IAM Access Analyzer
+  and flow into a connected SIEM via Security Hub's EventBridge events.
+  **Status: designed, not yet activated.** Mapping logic is complete and
+  unit-tested against mocked boto3, but hasn't run against a live Security
+  Hub instance, isn't wired into the default audit/report pipeline, and
+  still needs `resource_arn`/`resource_type`/`compliance_controls` plumbed
+  through the existing audit findings before it can be activated for real.
+  Set `ENABLE_SECURITY_HUB_EXPORT=true` to enable once that's done.
 
 ## Contributing
 
