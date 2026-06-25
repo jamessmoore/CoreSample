@@ -25,8 +25,15 @@ import os
 
 from asff_mapper import batch_import, findings_dict_to_asff_findings
 
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig() is a no-op here -- the Lambda runtime pre-attaches
+# its own handler to the root logger before this module ever loads, and
+# that root logger defaults to WARNING. Without an explicit setLevel() on
+# *this* logger, every logger.info() call below is silently dropped --
+# confirmed against a real deployed invocation, where the no-op path ran
+# correctly but left zero log output. setLevel() on the named logger (not
+# basicConfig on root) is what actually fixes it.
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def _account_id_from_context(context) -> str:
