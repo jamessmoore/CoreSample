@@ -18,6 +18,10 @@ terraform {
       source  = "hashicorp/awscc"
       version = ">= 1.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = ">= 2.0"
+    }
   }
 
   # S3 backend, same pattern as daily-tech-brief-bedrock/terraform/main.tf:

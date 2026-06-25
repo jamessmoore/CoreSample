@@ -6,6 +6,7 @@ from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 
+from eventbridge import publish_audit_event
 from report import generate_markdown_report, merge_findings
 from storage import upload_report
 
@@ -59,6 +60,8 @@ def generate_report(
         findings = merge_findings([json.loads(s) for s in audit_jsons])
     except json.JSONDecodeError as e:
         return json.dumps({"error": f"Invalid entry in audit_jsons -- could not parse: {str(e)}"})
+
+    publish_audit_event(findings, region=region)
 
     fmt = format.lower().strip()
 

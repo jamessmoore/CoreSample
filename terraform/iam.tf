@@ -158,7 +158,11 @@ resource "aws_iam_role_policy" "s3_audit_mcp_readonly" {
 
 # --- report-mcp task role ----------------------------------------------------
 # report-mcp transforms JSON into Markdown and writes the result to the
-# reports bucket (terraform/s3.tf) -- the only AWS API call it makes.
+# reports bucket (terraform/s3.tf), and publishes an "AuditReportGenerated"
+# event to the default EventBridge bus after merging findings (eventbridge.py)
+# -- the two AWS API calls it makes. The EventBridge event is consumed by
+# the Security Hub exporter Lambda (terraform/security_hub_exporter.tf);
+# report-mcp has no IAM visibility into that Lambda or Security Hub itself.
 
 resource "aws_iam_role" "report_mcp_task" {
   name = "${var.project_name}-report-mcp-task"
@@ -184,6 +188,21 @@ resource "aws_iam_role_policy" "report_mcp_s3_write" {
       Effect   = "Allow"
       Action   = "s3:PutObject"
       Resource = "${aws_s3_bucket.reports.arn}/*"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "report_mcp_eventbridge_publish" {
+  name = "${var.project_name}-report-mcp-eventbridge-publish"
+  role = aws_iam_role.report_mcp_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "PublishAuditEvents"
+      Effect   = "Allow"
+      Action   = "events:PutEvents"
+      Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
     }]
   })
 }
