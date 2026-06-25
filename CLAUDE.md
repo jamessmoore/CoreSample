@@ -58,6 +58,40 @@ Runtime's `:latest`-tag image problem:
 Any future change to an MCP tool's parameters needs this same step, not
 just an ECS redeploy.
 
+AWS Security Hub export is now **wired and deployed, not yet activated
+against live Security Hub** -- one step further than the previous
+"designed, not yet activated" state. `report-mcp` publishes an
+`AuditReportGenerated` EventBridge event (merged findings + region, no
+`account_id`) after merging findings; a new exporter Lambda
+(`integrations/security_hub/exporter/`) subscribes via its own
+EventBridge rule, derives `account_id` from its own execution context
+(zero extra IAM permissions -- doesn't depend on report-mcp or the LLM
+supplying one), maps findings to ASFF via a new category→resource table
+in `asff_mapper.py`, and would call `BatchImportFindings` if enabled.
+`ec2-audit-mcp`/`iam-audit-mcp`/`s3-audit-mcp` are untouched -- the
+ASFF-specific mapping lives entirely in `asff_mapper.py`, since
+`resource_type`/`resource_arn` are static per finding category and don't
+need to flow through the live audit services. **Deployed and verified**
+against the real account: a real audit run produced a real combined
+report, `report-mcp` published the event, and the exporter Lambda fired
+and no-op'd cleanly (`ENABLE_SECURITY_HUB_EXPORT` is `false` -- this
+account has no paid Security Hub subscription; `aws securityhub
+describe-hub` returns `SubscriptionRequiredException`).
+
+That verification pass also caught a real bug: the exporter's
+`logger.info()` calls produced zero CloudWatch output on the first
+deployed invocation, even though the no-op path itself ran correctly.
+`logging.basicConfig()` no-ops in AWS Lambda's Python runtime -- the
+runtime pre-attaches its own handler to the root logger before the module
+loads, and that root logger defaults to `WARNING`, silently dropping
+every `INFO` record. Fixed with `logger.setLevel(logging.INFO)` on the
+named logger instead of `basicConfig` on root, redeployed via
+`terraform apply` (only the Lambda's `source_code_hash` changed -- no
+other resource needed touching), and re-verified: the no-op log line now
+appears as expected. Worth remembering for any future Lambda in this
+repo -- this is a Lambda-runtime-specific quirk, not something a unit
+test reproduces.
+
 Terraform state lives in S3
 (`terraform/versions.tf`'s `backend "s3"` block, native locking via
 `use_lockfile`) — not local state, so
@@ -129,19 +163,25 @@ agent/            Strands Agent + FastAPI, implementing the AgentCore Runtime
                   0.0.0.0:8080, ARM64). MCP client to the Gateway signs with
                   this Runtime's own IAM role via mcp-proxy-for-aws.
 integrations/
-  security_hub/   AWS Security Hub ASFF export (asff_mapper.py) -- designed,
-                  not yet activated. Not a deployed MCP service (no
-                  Dockerfile/main.py/terraform target): a standalone,
-                  unit-tested module, gated by ENABLE_SECURITY_HUB_EXPORT,
-                  not called anywhere in the live audit/report pipeline.
-                  See README "Future expansions".
+  security_hub/   AWS Security Hub ASFF export. asff_mapper.py maps raw
+                  audit findings into ASFF, including the category->
+                  resource_type/resource_arn table that closes the gap
+                  the module's docstring used to describe. exporter/ is a
+                  separately-deployed Lambda (not an MCP service, no
+                  Gateway tool -- see terraform/security_hub_exporter.tf)
+                  subscribed to report-mcp's AuditReportGenerated
+                  EventBridge event. Deployed and wired end-to-end, gated
+                  by ENABLE_SECURITY_HUB_EXPORT (false by default -- see
+                  "Current status" above). See README "Future expansions".
 terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   API Gateway HTTP API + VPC Link, AgentCore Gateway +
                   targets, AgentCore Runtime (awscc provider), an S3 bucket
-                  for generated reports (s3.tf), least-privilege IAM
-                  throughout. Remote state in S3 with native locking
-                  (versions.tf) -- the bucket is bootstrapped out of band,
-                  see README "Terraform state backend".
+                  for generated reports (s3.tf), the Security Hub exporter
+                  Lambda + EventBridge rule (security_hub_exporter.tf),
+                  least-privilege IAM throughout. Remote state in S3 with
+                  native locking (versions.tf) -- the bucket is
+                  bootstrapped out of band, see README "Terraform state
+                  backend".
 .github/workflows/
   test.yml        CI gate: pytest (x6 services) + terraform fmt/validate,
                   on every PR to main and push to main.

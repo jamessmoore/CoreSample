@@ -118,12 +118,24 @@ agent/            Strands Agent + FastAPI, implementing the AgentCore Runtime
                   0.0.0.0:8080). MCP client to the Gateway signs with this
                   Runtime's own IAM role via mcp-proxy-for-aws -- no audited-
                   account credentials ever touch this service either.
+integrations/
+  security_hub/   AWS Security Hub ASFF export. asff_mapper.py maps the raw
+                  {category: [...]} findings shape into ASFF; exporter/
+                  is a separately-deployed Lambda subscribed to report-mcp's
+                  AuditReportGenerated EventBridge event -- not a Gateway
+                  tool, so the agent can't invoke it and whether a finding
+                  reaches Security Hub never depends on an LLM decision.
+                  Deployed and wired end-to-end; gated by
+                  ENABLE_SECURITY_HUB_EXPORT (false by default -- no paid
+                  Security Hub subscription on this account yet). See
+                  "Status" and "Future expansions" below.
 terraform/        ECR, ECS cluster/services/tasks (Fargate), internal ALB,
                   API Gateway HTTP API + VPC Link, AgentCore Gateway +
                   targets, AgentCore Runtime (awscc provider), an S3 bucket
-                  for generated reports, least-privilege IAM throughout.
-                  Remote state in S3 with native locking -- see "Terraform
-                  state backend" below.
+                  for generated reports, the Security Hub exporter Lambda +
+                  EventBridge rule, least-privilege IAM throughout. Remote
+                  state in S3 with native locking -- see "Terraform state
+                  backend" below.
 ```
 
 ## Status
@@ -172,6 +184,32 @@ Known gaps:
   `terraform apply -replace=aws_bedrockagentcore_gateway_target.report_mcp`.
   Any future change to an MCP tool's parameters needs this step, not just
   an ECS redeploy -- see "Deploying" below.
+- AWS Security Hub export is now **wired and deployed, not yet activated
+  against live Security Hub** -- one step further than the original
+  "designed, not yet activated" state. `report-mcp` publishes an
+  `AuditReportGenerated` EventBridge event (merged findings + region, no
+  `account_id`) after merging findings; a new exporter Lambda
+  (`integrations/security_hub/exporter/`) subscribes via its own
+  EventBridge rule, derives `account_id` from its own execution context
+  (zero extra IAM permissions), maps findings to ASFF via a new
+  category→resource table in `asff_mapper.py`, and would call
+  `BatchImportFindings` if enabled. Confirmed against a real deployed
+  invocation: a full audit ran end-to-end, `report-mcp` published the
+  event, and the exporter Lambda fired and no-op'd cleanly
+  (`ENABLE_SECURITY_HUB_EXPORT` is `false` -- this account has no paid
+  Security Hub subscription; `aws securityhub describe-hub` returns
+  `SubscriptionRequiredException`).
+  That same verification pass caught a real bug worth recording: the
+  exporter's `logger.info()` calls produced zero CloudWatch output on the
+  first deployed invocation, even though the no-op path itself ran
+  correctly. `logging.basicConfig()` no-ops in AWS Lambda's Python runtime
+  -- the runtime pre-attaches its own handler to the root logger before
+  the module loads, and that root logger defaults to `WARNING`, silently
+  dropping every `INFO` record. Fixed with `logger.setLevel(logging.INFO)`
+  on the named logger instead, redeployed, and re-verified: the no-op log
+  line now appears as expected. A unit test couldn't have caught this --
+  it's a Lambda-runtime-specific environment quirk, not something pytest's
+  logging capture reproduces -- which is exactly why this section exists.
 
 ## v1 scope
 
@@ -319,12 +357,17 @@ its API operation name exactly.
   Security Hub's ASFF format for `BatchImportFindings`, so CoreSample
   findings could correlate alongside GuardDuty/Inspector/IAM Access Analyzer
   and flow into a connected SIEM via Security Hub's EventBridge events.
-  **Status: designed, not yet activated.** Mapping logic is complete and
-  unit-tested against mocked boto3, but hasn't run against a live Security
-  Hub instance, isn't wired into the default audit/report pipeline, and
-  still needs `resource_arn`/`resource_type`/`compliance_controls` plumbed
-  through the existing audit findings before it can be activated for real.
-  Set `ENABLE_SECURITY_HUB_EXPORT=true` to enable once that's done.
+  **Status: wired and deployed, not yet activated against live Security
+  Hub.** `report-mcp` publishes an `AuditReportGenerated` EventBridge event
+  after every report; a dedicated exporter Lambda
+  (`integrations/security_hub/exporter/`) subscribes to it, maps findings
+  to ASFF, and would call `BatchImportFindings` if enabled — deployed and
+  confirmed firing end-to-end against a real audit run (see "Status"
+  above). The remaining gap is real-world activation, not code: this
+  account has no paid Security Hub subscription, so the export path has
+  never run against a live Security Hub instance to confirm the ASFF
+  payload is actually accepted. Set `ENABLE_SECURITY_HUB_EXPORT=true` on
+  the exporter Lambda once a real Security Hub subscription exists.
 
 ## Contributing
 
