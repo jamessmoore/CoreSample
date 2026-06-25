@@ -152,8 +152,8 @@ s3-audit-mcp/     S3 audit checks (public buckets, public-access-block gaps,
                   missing encryption/versioning), same FastMCP/streamable-
                   HTTP shape and credential model as ec2-audit-mcp. Buckets
                   are regional (unlike IAM) -- filtered by actual bucket
-                  region via get_bucket_location. Not yet deployed -- see
-                  "Current status" above.
+                  region via get_bucket_location. Deployed and verified --
+                  see "Current status" above.
 report-mcp/       Findings -> Markdown report, decoupled from audit logic.
                   Also persists each report to S3 (storage.py) and notes the
                   s3:// location alongside the inline report text. HTML/PDF
